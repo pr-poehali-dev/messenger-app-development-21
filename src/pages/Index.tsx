@@ -2,6 +2,23 @@ import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 
 const CHAT_API = "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3";
+const PUSH_API = "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af";
+
+async function pushApi(action: string, body: Record<string, unknown> = {}, userId?: number) {
+  const res = await fetch(PUSH_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(userId ? { "X-User-Id": String(userId) } : {}) },
+    body: JSON.stringify({ action, ...body }),
+  });
+  return res.json();
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
 
 async function api(action: string, body: Record<string, unknown> = {}, userId?: number) {
   const res = await fetch(CHAT_API, {
@@ -995,6 +1012,40 @@ export default function Index() {
   const [realChats, setRealChats] = useState<Chat[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Push-подписка
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    const subscribe = async () => {
+      try {
+        const keyData = await pushApi("vapid_key");
+        const publicKey = keyData.public_key;
+        if (!publicKey) return;
+
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        const sub = existing || await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+
+        const subJson = sub.toJSON();
+        await pushApi("subscribe", {
+          endpoint: sub.endpoint,
+          p256dh: (subJson.keys as Record<string, string>)?.p256dh || "",
+          auth: (subJson.keys as Record<string, string>)?.auth || "",
+        }, currentUser.id);
+      } catch {
+        // Пользователь отклонил или браузер не поддерживает
+      }
+    };
+
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") subscribe();
+    });
+  }, [currentUser]);
 
   // Загрузка чатов
   useEffect(() => {

@@ -1,0 +1,21 @@
+{
+  "tests": [
+    {
+      "name": "Get VAPID public key",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "vapid_key"},
+      "expectedStatus": 200,
+      "expectedBody": {"public_key": ""},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Subscribe without user returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "subscribe"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

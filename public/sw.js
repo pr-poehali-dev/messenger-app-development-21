@@ -1,5 +1,4 @@
-const CACHE = "nova-v1";
-const ASSETS = ["/", "/src/main.tsx"];
+const CACHE = "nova-v2";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -30,5 +29,37 @@ self.addEventListener("fetch", (e) => {
         return res;
       })
       .catch(() => caches.match(e.request).then((r) => r || fetch(e.request)))
+  );
+});
+
+// ── Push уведомления ──────────────────────────────────────────────────────────
+self.addEventListener("push", (e) => {
+  if (!e.data) return;
+  let data = {};
+  try { data = JSON.parse(e.data.text()); } catch { data = { title: "Nova", body: e.data.text() }; }
+
+  e.waitUntil(
+    self.registration.showNotification(data.title || "Nova", {
+      body: data.body || "Новое сообщение",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      vibrate: [200, 100, 200],
+      data: { chat_id: data.chat_id, url: "/" },
+      actions: [{ action: "open", title: "Открыть" }],
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      return clients.openWindow("/");
+    })
   );
 });

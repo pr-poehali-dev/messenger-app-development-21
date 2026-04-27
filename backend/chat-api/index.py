@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import urllib.request
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p67547116_messenger_app_develo")
@@ -205,7 +206,37 @@ def handler(event: dict, context) -> dict:
             (text[:100], now, int(chat_id))
         )
         cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE id = %s", (now, int(user_id)))
+
+        # Узнать имя отправителя и получателя для push
+        cur.execute(
+            f"""SELECT u.name,
+                       CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END AS recipient_id
+                FROM {SCHEMA}.chats c
+                JOIN {SCHEMA}.users u ON u.id = %s
+                WHERE c.id = %s""",
+            (int(user_id), int(user_id), int(chat_id))
+        )
+        row = cur.fetchone()
         conn.close()
+
+        # Отправить push уведомление получателю (асинхронно через HTTP)
+        if row:
+            sender_name, recipient_id = row
+            push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+            if push_url:
+                try:
+                    push_body = json.dumps({
+                        "action": "send",
+                        "recipient_id": recipient_id,
+                        "sender_name": sender_name,
+                        "message": text[:100],
+                        "chat_id": int(chat_id),
+                    }).encode("utf-8")
+                    req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception:
+                    pass
+
         return ok({"id": msg_id, "created_at": now})
 
     # ── mark_read ─────────────────────────────────────────────────────────────
