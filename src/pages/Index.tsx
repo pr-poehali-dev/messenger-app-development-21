@@ -3,6 +3,11 @@ import Icon from "@/components/ui/icon";
 
 type IconName = string;
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type View = "chats" | "stories" | "search" | "profile" | "settings";
@@ -594,7 +599,22 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
   const [shake, setShake] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [resendTimer, setResendTimer] = useState(0);
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+  const [showInstall, setShowInstall] = useState(false);
   const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); setShowInstall(true); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    (installPrompt as BeforeInstallPromptEvent).prompt();
+    const { outcome } = await (installPrompt as BeforeInstallPromptEvent).userChoice;
+    if (outcome === "accepted") setShowInstall(false);
+  };
 
   const SMS_URL = "https://functions.poehali.dev/d5b81fb8-fe85-4a15-84a6-cc602997298c";
 
@@ -703,6 +723,25 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
       {/* Decorative blobs */}
       <div className="absolute top-[-10%] right-[-10%] w-80 h-80 rounded-full bg-violet-600/20 blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 rounded-full bg-sky-600/15 blur-3xl pointer-events-none" />
+
+      {/* Install banner */}
+      {showInstall && (
+        <div className="fixed bottom-6 left-4 right-4 z-50 glass rounded-2xl p-4 flex items-center gap-3 border border-violet-500/30 shadow-2xl animate-fade-in">
+          <div className="w-12 h-12 grad-primary rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="Zap" size={22} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm">Установить Nova</p>
+            <p className="text-xs text-muted-foreground">Добавить на главный экран</p>
+          </div>
+          <button onClick={handleInstall} className="px-4 py-2 grad-primary rounded-xl text-white text-sm font-bold flex-shrink-0">
+            Установить
+          </button>
+          <button onClick={() => setShowInstall(false)} className="p-1 text-muted-foreground hover:text-foreground">
+            <Icon name="X" size={16} />
+          </button>
+        </div>
+      )}
 
       <div className={`w-full max-w-sm mx-4 animate-scale-in ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
         {/* Logo */}
