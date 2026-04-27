@@ -515,6 +515,25 @@ function ProfilePanel({ onSettings, currentUser }: { onSettings: () => void; cur
         ))}
       </div>
 
+      {/* Invite link */}
+          <div className="glass rounded-2xl p-4 border border-violet-500/20 mx-4 mb-4">
+            <p className="text-sm font-semibold mb-1">Пригласить друзей</p>
+            <p className="text-xs text-muted-foreground mb-3">Поделитесь ссылкой — друг скачает Nova и вы сразу найдёте друг друга</p>
+            <button
+              onClick={() => {
+                const url = window.location.origin;
+                if (navigator.share) {
+                  navigator.share({ title: "Nova — мессенджер", text: `Привет! Давай общаться в Nova — безопасном мессенджере. Мой номер: ${currentUser.phone}`, url });
+                } else {
+                  navigator.clipboard.writeText(url).then(() => alert("Ссылка скопирована!"));
+                }
+              }}
+              className="w-full py-3 grad-primary rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 glow-primary"
+            >
+              <Icon name="Share2" size={16} /> Поделиться ссылкой
+            </button>
+          </div>
+
       {/* Actions */}
       <div className="px-4 space-y-2 mb-6">
         {[
@@ -826,6 +845,19 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
           <button onClick={() => setShowInstall(false)} className="p-1 text-muted-foreground hover:text-foreground">
             <Icon name="X" size={16} />
           </button>
+        </div>
+      )}
+
+      {/* iOS install hint */}
+      {!showInstall && /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches && (
+        <div className="fixed bottom-6 left-4 right-4 z-50 glass rounded-2xl p-4 flex items-center gap-3 border border-white/10 animate-fade-in">
+          <div className="w-10 h-10 grad-primary rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="Zap" size={18} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm">Установить Nova</p>
+            <p className="text-xs text-muted-foreground">Нажмите <span className="text-violet-400">⬆ Поделиться</span> → «На экран Домой»</p>
+          </div>
         </div>
       )}
 

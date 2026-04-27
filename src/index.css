@@ -72,6 +72,27 @@
     @apply bg-background text-foreground;
     font-family: "Golos Text", sans-serif;
     overflow: hidden;
+    /* Запрещаем pull-to-refresh и bounce на iOS */
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+    /* Высота на мобильных с учётом адресной строки */
+    height: 100dvh;
+  }
+
+  #root {
+    height: 100dvh;
+    /* Safe area для iPhone (чёлка, Dynamic Island, Home Bar) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Запрещаем выделение текста на мобильных */
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 
   ::-webkit-scrollbar {
