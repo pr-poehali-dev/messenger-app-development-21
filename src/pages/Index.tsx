@@ -1,6 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 
+const CHAT_API = "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3";
+
+async function api(action: string, body: Record<string, unknown> = {}, userId?: number) {
+  const res = await fetch(CHAT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(userId ? { "X-User-Id": String(userId) } : {}) },
+    body: JSON.stringify({ action, ...body }),
+  });
+  return res.json();
+}
+
 type IconName = string;
 
 interface BeforeInstallPromptEvent extends Event {
@@ -19,6 +30,8 @@ interface Message {
   time: string;
   out: boolean;
   read?: boolean;
+  sender_id?: number;
+  created_at?: number;
   file?: { name: string; size: string };
 }
 
@@ -34,6 +47,15 @@ interface Chat {
   verified?: boolean;
   group?: boolean;
   pinned?: boolean;
+  partner_id?: number;
+}
+
+interface User {
+  id: number;
+  phone: string;
+  name: string;
+  avatar_url?: string;
+  last_seen?: number;
 }
 
 interface Story {
@@ -66,24 +88,7 @@ const CHATS: Chat[] = [
   { id: 8, name: "Иван Смирнов", avatar: "И", lastMsg: "Документы отправил", time: "сб" },
 ];
 
-const MESSAGES: Message[] = [
-  { id: 1, text: "Привет! Как дела? 👋", time: "13:00", out: false },
-  { id: 2, text: "Отлично! Работаю над новым проектом. Скоро покажу результаты 🚀", time: "13:01", out: true, read: true },
-  { id: 3, text: "Звучит круто! Что за проект?", time: "13:02", out: false },
-  { id: 4, text: "Мессенджер с крутым дизайном и шифрованием. Хочу сделать что-то особенное 💜", time: "13:03", out: true, read: true },
-  { id: 5, text: "Вау, это звучит серьёзно! Покажешь когда будет готово?", time: "13:10", out: false },
-  { id: 6, text: "Конечно! Ты будешь одной из первых тестировщиков 😉", time: "13:11", out: true, read: true },
-  { id: 7, text: "Окей, завтра созвонимся 🎉", time: "сейчас", out: false },
-];
 
-const CONTACTS = [
-  { id: 1, name: "Алина Соколова", avatar: "А", status: "Онлайн", online: true },
-  { id: 2, name: "Дмитрий Волков", avatar: "Д", status: "Был(а) 5 мин назад", online: false },
-  { id: 3, name: "Екатерина Лебедева", avatar: "Е", status: "Онлайн", online: true },
-  { id: 4, name: "Иван Смирнов", avatar: "И", status: "Был(а) час назад", online: false },
-  { id: 5, name: "Максим Кузнецов", avatar: "М", status: "Онлайн", online: true },
-  { id: 6, name: "Юлия Попова", avatar: "Ю", status: "Был(а) вчера", online: false },
-];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -207,22 +212,65 @@ function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSelect: (c
   );
 }
 
-function ChatWindow({ chat, onBack }: { chat: Chat; onBack: () => void }) {
-  const [messages, setMessages] = useState<Message[]>(MESSAGES);
+function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: () => void; currentUser: User }) {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [showAttach, setShowAttach] = useState(false);
+  const [lastSince, setLastSince] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const loadMessages = async (since = 0) => {
+    const data = await api("get_messages", { chat_id: chat.id, since }, currentUser.id);
+    if (data.messages && data.messages.length > 0) {
+      const mapped: Message[] = data.messages.map((m: { id: number; text: string; created_at: number; sender_id: number; read_at?: number }) => ({
+        id: m.id,
+        text: m.text,
+        time: new Date(m.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }),
+        out: m.sender_id === currentUser.id,
+        read: !!m.read_at,
+        sender_id: m.sender_id,
+        created_at: m.created_at,
+      }));
+      if (since === 0) {
+        setMessages(mapped);
+      } else {
+        setMessages(prev => [...prev, ...mapped]);
+      }
+      const maxTs = Math.max(...data.messages.map((m: { created_at: number }) => m.created_at));
+      setLastSince(maxTs);
+      // Пометить прочитанными
+      api("mark_read", { chat_id: chat.id }, currentUser.id);
+    }
+  };
+
+  useEffect(() => {
+    setMessages([]);
+    setLastSince(0);
+    loadMessages(0);
+  }, [chat.id]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadMessages(lastSince);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [chat.id, lastSince]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const send = () => {
+  const send = async () => {
     if (!input.trim()) return;
-    const now = new Date();
-    const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
-    setMessages(m => [...m, { id: Date.now(), text: input.trim(), time, out: true, read: false }]);
+    const text = input.trim();
     setInput("");
+    const data = await api("send_message", { chat_id: chat.id, text }, currentUser.id);
+    if (data.id) {
+      const now = new Date(data.created_at * 1000);
+      const timeStr = now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+      setMessages(prev => [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at }]);
+      setLastSince(data.created_at);
+    }
   };
 
   return (
@@ -348,9 +396,9 @@ function ChatWindow({ chat, onBack }: { chat: Chat; onBack: () => void }) {
   );
 }
 
-function SearchPanel() {
+function SearchPanel({ users, currentUser, onStartChat }: { users: User[]; currentUser: User; onStartChat: (id: number) => void }) {
   const [query, setQuery] = useState("");
-  const results = query.length > 0 ? CONTACTS.filter(c => c.name.toLowerCase().includes(query.toLowerCase())) : CONTACTS;
+  const results = users.filter(u => !query || u.name.toLowerCase().includes(query.toLowerCase()) || u.phone.includes(query));
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
@@ -374,13 +422,13 @@ function SearchPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 space-y-1">
-        {!query && <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold">Все контакты</div>}
-        {results.map((c, i) => (
-          <button key={c.id} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
-            <Avatar label={c.avatar} id={c.id} online={c.online} />
+        {!query && <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold">Все пользователи</div>}
+        {results.map((u, i) => (
+          <button key={u.id} onClick={() => onStartChat(u.id)} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
+            <Avatar label={u.name[0]?.toUpperCase() || "?"} id={u.id} online={currentUser.id !== u.id && Date.now() / 1000 - (u.last_seen || 0) < 300} />
             <div className="text-left">
-              <div className="font-semibold text-sm">{c.name}</div>
-              <div className="text-xs text-muted-foreground">{c.status}</div>
+              <div className="font-semibold text-sm">{u.name}</div>
+              <div className="text-xs text-muted-foreground">{u.phone}</div>
             </div>
             <div className="ml-auto">
               <Icon name="MessageCircle" size={18} className="text-violet-400" />
@@ -405,21 +453,27 @@ function SearchPanel() {
   );
 }
 
-function ProfilePanel({ onSettings }: { onSettings: () => void }) {
+function ProfilePanel({ onSettings, currentUser }: { onSettings: () => void; currentUser: User }) {
+  const formatPhone = (phone: string) => {
+    const d = phone.replace(/\D/g, "");
+    if (d.length === 11) return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9)}`;
+    return phone;
+  };
+
   return (
     <div className="flex flex-col h-full animate-fade-in overflow-y-auto">
       {/* Hero */}
       <div className="relative px-6 pt-8 pb-6 text-center">
         <div className="relative inline-block mb-4">
           <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-4xl font-bold text-white animate-pulse-glow">
-            Я
+            {currentUser.name[0]?.toUpperCase() || "Я"}
           </div>
           <button className="absolute bottom-0 right-0 w-8 h-8 grad-primary rounded-full flex items-center justify-center text-white shadow-lg">
             <Icon name="Camera" size={14} />
           </button>
         </div>
-        <h2 className="text-2xl font-bold">Алексей Петров</h2>
-        <p className="text-muted-foreground text-sm mt-1">+7 (999) 123-45-67</p>
+        <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+        <p className="text-muted-foreground text-sm mt-1">{formatPhone(currentUser.phone)}</p>
         <div className="flex items-center justify-center gap-2 mt-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400" />
           <span className="text-emerald-400 text-xs font-medium">В сети</span>
@@ -590,7 +644,7 @@ function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) 
 
 type AuthStep = "phone" | "code" | "name";
 
-function AuthScreen({ onDone }: { onDone: () => void }) {
+function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
   const [step, setStep] = useState<AuthStep>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState(["", "", "", "", "", ""]);
@@ -710,10 +764,25 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
     setTimeout(() => setShake(false), 500);
   };
 
-  const handleNameSubmit = () => {
+  const handleNameSubmit = async () => {
     if (name.trim().length < 2) { triggerShake(); return; }
     setLoading(true);
-    setTimeout(() => { setLoading(false); onDone(); }, 1000);
+    setErrorMsg("");
+    try {
+      const digits = phone.replace(/\D/g, "");
+      const data = await api("register", { phone: digits, name: name.trim() });
+      if (data.user) {
+        onDone(data.user);
+      } else {
+        setErrorMsg(data.error || "Ошибка регистрации");
+        triggerShake();
+      }
+    } catch {
+      setErrorMsg("Нет соединения");
+      triggerShake();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -917,15 +986,82 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Index() {
-  const [authed, setAuthed] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("chats");
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [viewingStory, setViewingStory] = useState<Story | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [realChats, setRealChats] = useState<Chat[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  if (!authed) return <AuthScreen onDone={() => setAuthed(true)} />;
+  // Загрузка чатов
+  useEffect(() => {
+    if (!currentUser) return;
+    const loadChats = async () => {
+      const data = await api("get_chats", {}, currentUser.id);
+      if (data.chats) {
+        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number }) => ({
+          id: c.id,
+          name: c.partner.name,
+          avatar: c.partner.name[0]?.toUpperCase() || "?",
+          lastMsg: c.last_message || "Нет сообщений",
+          time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
+          unread: c.unread || 0,
+          online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
+          partner_id: c.partner.id,
+        }));
+        setRealChats(mapped);
+      }
+    };
+    loadChats();
+    const interval = setInterval(loadChats, 3000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Загрузка пользователей для поиска
+  useEffect(() => {
+    if (!currentUser) return;
+    api("get_users", { exclude_id: currentUser.id }).then((data) => {
+      if (data.users) setUsers(data.users);
+    });
+  }, [currentUser]);
+
+  const handleStartChat = async (partnerId: number) => {
+    if (!currentUser) return;
+    const data = await api("get_or_create_chat", { partner_id: partnerId }, currentUser.id);
+    if (data.chat_id) {
+      const partner = users.find(u => u.id === partnerId);
+      const chat: Chat = {
+        id: data.chat_id,
+        name: partner?.name || "Пользователь",
+        avatar: (partner?.name || "П")[0].toUpperCase(),
+        lastMsg: "Начните общение",
+        time: "",
+        partner_id: partnerId,
+      };
+      setSelectedChat(chat);
+      setView("chats");
+      setShowSidebar(false);
+      // Обновить список чатов
+      const chatsData = await api("get_chats", {}, currentUser.id);
+      if (chatsData.chats) {
+        setRealChats(chatsData.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number }) => ({
+          id: c.id,
+          name: c.partner.name,
+          avatar: c.partner.name[0]?.toUpperCase() || "?",
+          lastMsg: c.last_message || "Нет сообщений",
+          time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
+          unread: c.unread || 0,
+          online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
+          partner_id: c.partner.id,
+        })));
+      }
+    }
+  };
+
+  if (!currentUser) return <AuthScreen onDone={(user) => setCurrentUser(user)} />;
 
   const navItems: { tab: View; icon: string; label: string }[] = [
     { tab: "chats", icon: "MessageCircle", label: "Чаты" },
@@ -1013,7 +1149,7 @@ export default function Index() {
             <>
               <StoriesBar onView={setViewingStory} />
               <ChatList
-                chats={CHATS.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))}
+                chats={(realChats.length > 0 ? realChats : CHATS).filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))}
                 onSelect={handleSelectChat}
                 selectedId={selectedChat?.id}
               />
@@ -1041,12 +1177,12 @@ export default function Index() {
           )}
           {activeTab === "contacts" && (
             <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
-              {CONTACTS.map((c, i) => (
-                <button key={c.id} onClick={() => handleSelectChat({ id: c.id, name: c.name, avatar: c.avatar, lastMsg: "", time: "", online: c.online })} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
-                  <Avatar label={c.avatar} id={c.id} online={c.online} />
+              {users.map((u, i) => (
+                <button key={u.id} onClick={() => handleStartChat(u.id)} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
+                  <Avatar label={u.name[0]?.toUpperCase() || "?"} id={u.id} online={Date.now() / 1000 - (u.last_seen || 0) < 300} />
                   <div className="text-left">
-                    <div className="text-sm font-semibold">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">{c.status}</div>
+                    <div className="text-sm font-semibold">{u.name}</div>
+                    <div className="text-xs text-muted-foreground">{u.phone}</div>
                   </div>
                   <Icon name="ChevronRight" size={15} className="text-muted-foreground ml-auto" />
                 </button>
@@ -1081,11 +1217,11 @@ export default function Index() {
         ${showSidebar && !selectedChat ? "translate-x-full md:translate-x-0" : "translate-x-0"}
       `}>
         {selectedChat ? (
-          <ChatWindow chat={selectedChat} onBack={handleBack} />
+          <ChatWindow chat={selectedChat} onBack={handleBack} currentUser={currentUser} />
         ) : view === "search" ? (
-          <SearchPanel />
+          <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} />
         ) : view === "profile" ? (
-          <ProfilePanel onSettings={() => setView("settings")} />
+          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} />
         ) : view === "settings" ? (
           <SettingsPanel />
         ) : (

@@ -1,0 +1,39 @@
+{
+  "tests": [
+    {
+      "name": "Register user",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "register", "phone": "79991234567", "name": "Тест"},
+      "expectedStatus": 200,
+      "expectedBody": {"user": {"phone": "79991234567"}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get me",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "get_me", "phone": "79991234567"},
+      "expectedStatus": 200,
+      "expectedBody": {"user": {"name": "Тест"}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get users",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "get_users", "exclude_id": 0},
+      "expectedStatus": 200,
+      "expectedBody": {"users": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Unknown action returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "unknown"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
