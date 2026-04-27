@@ -544,7 +544,7 @@ function ProfilePanel({ onSettings, currentUser }: { onSettings: () => void; cur
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ onLogout }: { onLogout: () => void }) {
   const [e2e, setE2e] = useState(true);
   const [twofa, setTwofa] = useState(false);
   const [biometric, setBiometric] = useState(true);
@@ -601,7 +601,7 @@ function SettingsPanel() {
           </div>
         ))}
 
-        <button className="w-full flex items-center gap-3 px-4 py-3 glass rounded-2xl hover:bg-white/8 transition-all mt-2">
+        <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 glass rounded-2xl hover:bg-red-500/10 transition-all mt-2">
           <div className="w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center">
             <Icon name="LogOut" size={18} className="text-red-400" />
           </div>
@@ -1004,6 +1004,21 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
 
 export default function Index() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  // Восстановление сессии из localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("nova_user");
+      if (saved) {
+        const user = JSON.parse(saved) as User;
+        if (user?.id && user?.phone && user?.name) {
+          setCurrentUser(user);
+        }
+      }
+    } catch { /* ignore */ }
+    setSessionChecked(true);
+  }, []);
   const [activeTab, setActiveTab] = useState<Tab>("chats");
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -1112,7 +1127,29 @@ export default function Index() {
     }
   };
 
-  if (!currentUser) return <AuthScreen onDone={(user) => setCurrentUser(user)} />;
+  const login = (user: User) => {
+    localStorage.setItem("nova_user", JSON.stringify(user));
+    setCurrentUser(user);
+  };
+
+  const logout = () => {
+    localStorage.removeItem("nova_user");
+    setCurrentUser(null);
+  };
+
+  if (!sessionChecked) return (
+    <div className="h-screen flex items-center justify-center relative overflow-hidden">
+      <div className="mesh-bg" />
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center glow-primary animate-float">
+          <Icon name="Zap" size={36} className="text-white" />
+        </div>
+        <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+      </div>
+    </div>
+  );
+
+  if (!currentUser) return <AuthScreen onDone={login} />;
 
   const navItems: { tab: View; icon: string; label: string }[] = [
     { tab: "chats", icon: "MessageCircle", label: "Чаты" },
@@ -1274,7 +1311,7 @@ export default function Index() {
         ) : view === "profile" ? (
           <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} />
         ) : view === "settings" ? (
-          <SettingsPanel />
+          <SettingsPanel onLogout={logout} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8 animate-fade-in">
             <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mb-6 glow-primary animate-float">
