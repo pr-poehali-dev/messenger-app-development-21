@@ -581,15 +581,253 @@ function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) 
   );
 }
 
+// ─── Auth Screen ──────────────────────────────────────────────────────────────
+
+type AuthStep = "phone" | "code" | "name";
+
+function AuthScreen({ onDone }: { onDone: () => void }) {
+  const [step, setStep] = useState<AuthStep>("phone");
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState(["", "", "", "", "", ""]);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [shake, setShake] = useState(false);
+  const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const formatPhone = (val: string) => {
+    const digits = val.replace(/\D/g, "").slice(0, 11);
+    if (!digits) return "";
+    if (digits.length <= 1) return `+7`;
+    if (digits.length <= 4) return `+7 (${digits.slice(1)}`;
+    if (digits.length <= 7) return `+7 (${digits.slice(1, 4)}) ${digits.slice(4)}`;
+    if (digits.length <= 9) return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7, 9)}-${digits.slice(9)}`;
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhone(formatPhone(e.target.value));
+  };
+
+  const handlePhoneSubmit = () => {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 11) { triggerShake(); return; }
+    setLoading(true);
+    setTimeout(() => { setLoading(false); setStep("code"); }, 1200);
+  };
+
+  const handleCodeChange = (i: number, val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    const next = [...code];
+    next[i] = val.slice(-1);
+    setCode(next);
+    if (val && i < 5) codeRefs.current[i + 1]?.focus();
+    if (next.every(d => d !== "")) {
+      setTimeout(() => {
+        if (next.join("") === "123456") {
+          setStep("name");
+        } else {
+          triggerShake();
+          setCode(["", "", "", "", "", ""]);
+          codeRefs.current[0]?.focus();
+        }
+      }, 300);
+    }
+  };
+
+  const handleCodeKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !code[i] && i > 0) {
+      codeRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+  };
+
+  const handleNameSubmit = () => {
+    if (name.trim().length < 2) { triggerShake(); return; }
+    setLoading(true);
+    setTimeout(() => { setLoading(false); onDone(); }, 1000);
+  };
+
+  return (
+    <div className="h-screen flex items-center justify-center relative overflow-hidden">
+      <div className="mesh-bg" />
+
+      {/* Decorative blobs */}
+      <div className="absolute top-[-10%] right-[-10%] w-80 h-80 rounded-full bg-violet-600/20 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 rounded-full bg-sky-600/15 blur-3xl pointer-events-none" />
+
+      <div className={`w-full max-w-sm mx-4 animate-scale-in ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mx-auto mb-4 glow-primary animate-float">
+            <Icon name="Zap" size={36} className="text-white" />
+          </div>
+          <h1 className="text-4xl font-black grad-text tracking-tight">Nova</h1>
+          <p className="text-muted-foreground text-sm mt-1">Безопасный мессенджер</p>
+        </div>
+
+        {/* Step indicators */}
+        <div className="flex items-center justify-center gap-2 mb-8">
+          {(["phone", "code", "name"] as AuthStep[]).map((s, i) => (
+            <div key={s} className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                step === s ? "w-6 grad-primary" :
+                (["phone", "code", "name"].indexOf(step) > i ? "bg-violet-500" : "bg-white/15")
+              }`} />
+            </div>
+          ))}
+        </div>
+
+        {/* Phone step */}
+        {step === "phone" && (
+          <div className="animate-fade-in space-y-4">
+            <div>
+              <h2 className="text-xl font-bold mb-1">Введите номер телефона</h2>
+              <p className="text-sm text-muted-foreground">Отправим код подтверждения по SMS</p>
+            </div>
+            <div className={`flex items-center gap-3 glass rounded-2xl px-4 py-4 border ${shake ? "border-red-500/50" : "border-white/0 focus-within:border-violet-500/40"} transition-colors`}>
+              <span className="text-2xl">🇷🇺</span>
+              <input
+                autoFocus
+                value={phone}
+                onChange={handlePhoneChange}
+                onKeyDown={e => e.key === "Enter" && handlePhoneSubmit()}
+                placeholder="+7 (___) ___-__-__"
+                className="flex-1 bg-transparent outline-none text-base text-foreground placeholder-muted-foreground font-medium"
+                type="tel"
+              />
+            </div>
+            <button
+              onClick={handlePhoneSubmit}
+              disabled={loading}
+              className="w-full py-4 grad-primary rounded-2xl text-white font-bold text-base glow-primary hover:opacity-90 transition-opacity disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Отправляем...
+                </>
+              ) : (
+                <>Получить код <Icon name="ArrowRight" size={18} /></>
+              )}
+            </button>
+            <p className="text-center text-xs text-muted-foreground">
+              Нажимая «Получить код», вы соглашаетесь с{" "}
+              <span className="text-violet-400 cursor-pointer">Условиями использования</span>
+            </p>
+          </div>
+        )}
+
+        {/* Code step */}
+        {step === "code" && (
+          <div className="animate-fade-in space-y-4">
+            <div>
+              <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-violet-400 text-sm mb-3 hover:text-violet-300 transition-colors">
+                <Icon name="ChevronLeft" size={16} /> Изменить номер
+              </button>
+              <h2 className="text-xl font-bold mb-1">Код из SMS</h2>
+              <p className="text-sm text-muted-foreground">Отправили на <span className="text-foreground font-medium">{phone}</span></p>
+              <p className="text-xs text-violet-400 mt-1">Для демо введите: 123456</p>
+            </div>
+            <div className={`flex gap-2 justify-between ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
+              {code.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={el => { codeRefs.current[i] = el; }}
+                  value={digit}
+                  onChange={e => handleCodeChange(i, e.target.value)}
+                  onKeyDown={e => handleCodeKeyDown(i, e)}
+                  maxLength={1}
+                  className={`w-12 h-14 text-center text-2xl font-bold glass rounded-2xl outline-none transition-all duration-200 ${
+                    digit ? "border border-violet-500/60 text-foreground" : "border border-white/5 text-muted-foreground"
+                  } focus:border-violet-500/80 bg-transparent`}
+                  type="text"
+                  inputMode="numeric"
+                />
+              ))}
+            </div>
+            <div className="text-center">
+              <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                Отправить повторно через <span className="text-violet-400">59 сек</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Name step */}
+        {step === "name" && (
+          <div className="animate-fade-in space-y-4">
+            <div>
+              <h2 className="text-xl font-bold mb-1">Как вас зовут?</h2>
+              <p className="text-sm text-muted-foreground">Ваше имя увидят другие пользователи</p>
+            </div>
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-4xl font-bold text-white glow-primary">
+                  {name.trim() ? name.trim()[0].toUpperCase() : "?"}
+                </div>
+                <button className="absolute bottom-0 right-0 w-8 h-8 grad-primary rounded-full flex items-center justify-center text-white shadow-lg">
+                  <Icon name="Camera" size={14} />
+                </button>
+              </div>
+              <div className={`w-full flex items-center gap-3 glass rounded-2xl px-4 py-4 border ${shake ? "border-red-500/50" : "border-white/0 focus-within:border-violet-500/40"} transition-colors`}>
+                <Icon name="User" size={18} className="text-muted-foreground" />
+                <input
+                  autoFocus
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleNameSubmit()}
+                  placeholder="Ваше имя"
+                  className="flex-1 bg-transparent outline-none text-base text-foreground placeholder-muted-foreground"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleNameSubmit}
+              disabled={loading}
+              className="w-full py-4 grad-primary rounded-2xl text-white font-bold text-base glow-primary hover:opacity-90 transition-opacity disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Входим в Nova...
+                </>
+              ) : (
+                <>Начать общение <Icon name="Sparkles" size={18} /></>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-8px); }
+          40% { transform: translateX(8px); }
+          60% { transform: translateX(-6px); }
+          80% { transform: translateX(6px); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Index() {
+  const [authed, setAuthed] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("chats");
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewingStory, setViewingStory] = useState<Story | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
+
+  if (!authed) return <AuthScreen onDone={() => setAuthed(true)} />;
 
   const navItems: { tab: View; icon: string; label: string }[] = [
     { tab: "chats", icon: "MessageCircle", label: "Чаты" },
@@ -633,7 +871,7 @@ export default function Index() {
             <div className="w-8 h-8 grad-primary rounded-xl flex items-center justify-center glow-primary">
               <Icon name="Zap" size={16} className="text-white" />
             </div>
-            <span className="text-lg font-bold grad-text">Волна</span>
+            <span className="text-lg font-bold grad-text">Nova</span>
           </div>
           <div className="flex items-center gap-1">
             <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
@@ -757,7 +995,7 @@ export default function Index() {
             <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mb-6 glow-primary animate-float">
               <Icon name="MessageCircle" size={36} className="text-white" />
             </div>
-            <h2 className="text-2xl font-bold mb-2 grad-text">Волна</h2>
+            <h2 className="text-2xl font-bold mb-2 grad-text">Nova</h2>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
               Выберите диалог слева, чтобы начать общение. Все сообщения защищены сквозным шифрованием.
             </p>
