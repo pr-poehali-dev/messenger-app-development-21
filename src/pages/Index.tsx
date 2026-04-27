@@ -592,7 +592,11 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [resendTimer, setResendTimer] = useState(0);
   const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const SMS_URL = "https://functions.poehali.dev/d5b81fb8-fe85-4a15-84a6-cc602997298c";
 
   const formatPhone = (val: string) => {
     const digits = val.replace(/\D/g, "").slice(0, 11);
@@ -608,11 +612,37 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
     setPhone(formatPhone(e.target.value));
   };
 
-  const handlePhoneSubmit = () => {
+  const startResendTimer = () => {
+    setResendTimer(59);
+    const interval = setInterval(() => {
+      setResendTimer(t => {
+        if (t <= 1) { clearInterval(interval); return 0; }
+        return t - 1;
+      });
+    }, 1000);
+  };
+
+  const handlePhoneSubmit = async () => {
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 11) { triggerShake(); return; }
     setLoading(true);
-    setTimeout(() => { setLoading(false); setStep("code"); }, 1200);
+    setErrorMsg("");
+    try {
+      const res = await fetch(SMS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", phone: digits }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErrorMsg(data.error || "Ошибка отправки"); triggerShake(); return; }
+      setStep("code");
+      startResendTimer();
+    } catch {
+      setErrorMsg("Нет соединения, попробуйте позже");
+      triggerShake();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCodeChange = (i: number, val: string) => {
@@ -622,10 +652,25 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
     setCode(next);
     if (val && i < 5) codeRefs.current[i + 1]?.focus();
     if (next.every(d => d !== "")) {
-      setTimeout(() => {
-        if (next.join("") === "123456") {
-          setStep("name");
-        } else {
+      setTimeout(async () => {
+        const digits = phone.replace(/\D/g, "");
+        try {
+          const res = await fetch(SMS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "verify", phone: digits, code: next.join("") }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setStep("name");
+          } else {
+            setErrorMsg(data.error || "Неверный код");
+            triggerShake();
+            setCode(["", "", "", "", "", ""]);
+            codeRefs.current[0]?.focus();
+          }
+        } catch {
+          setErrorMsg("Нет соединения");
           triggerShake();
           setCode(["", "", "", "", "", ""]);
           codeRefs.current[0]?.focus();
@@ -714,6 +759,9 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
                 <>Получить код <Icon name="ArrowRight" size={18} /></>
               )}
             </button>
+            {errorMsg && (
+              <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>
+            )}
             <p className="text-center text-xs text-muted-foreground">
               Нажимая «Получить код», вы соглашаетесь с{" "}
               <span className="text-violet-400 cursor-pointer">Условиями использования</span>
@@ -730,7 +778,6 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
               </button>
               <h2 className="text-xl font-bold mb-1">Код из SMS</h2>
               <p className="text-sm text-muted-foreground">Отправили на <span className="text-foreground font-medium">{phone}</span></p>
-              <p className="text-xs text-violet-400 mt-1">Для демо введите: 123456</p>
             </div>
             <div className={`flex gap-2 justify-between ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
               {code.map((digit, i) => (
@@ -749,10 +796,22 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
                 />
               ))}
             </div>
+            {errorMsg && (
+              <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>
+            )}
             <div className="text-center">
-              <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Отправить повторно через <span className="text-violet-400">59 сек</span>
-              </button>
+              {resendTimer > 0 ? (
+                <span className="text-sm text-muted-foreground">
+                  Отправить повторно через <span className="text-violet-400">{resendTimer} сек</span>
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setErrorMsg(""); handlePhoneSubmit(); }}
+                  className="text-sm text-violet-400 hover:text-violet-300 transition-colors"
+                >
+                  Отправить код повторно
+                </button>
+              )}
             </div>
           </div>
         )}
