@@ -678,21 +678,16 @@ function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) 
 
 // ─── Auth Screen ──────────────────────────────────────────────────────────────
 
-type AuthStep = "phone" | "code" | "name";
-
 function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
-  const [step, setStep] = useState<AuthStep>("phone");
+  const [step, setStep] = useState<"phone" | "name">("phone");
   const [phone, setPhone] = useState("");
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [resendTimer, setResendTimer] = useState(0);
-  const [demoCode, setDemoCode] = useState("");
+  const [existed, setExisted] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstall, setShowInstall] = useState(false);
-  const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); setShowInstall(true); };
@@ -707,8 +702,6 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     if (outcome === "accepted") setShowInstall(false);
   };
 
-  const SMS_URL = "https://functions.poehali.dev/d5b81fb8-fe85-4a15-84a6-cc602997298c";
-
   const formatPhone = (val: string) => {
     const digits = val.replace(/\D/g, "").slice(0, 11);
     if (!digits) return "";
@@ -719,18 +712,9 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7, 9)}-${digits.slice(9)}`;
   };
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPhone(formatPhone(e.target.value));
-  };
-
-  const startResendTimer = () => {
-    setResendTimer(59);
-    const interval = setInterval(() => {
-      setResendTimer(t => {
-        if (t <= 1) { clearInterval(interval); return 0; }
-        return t - 1;
-      });
-    }, 1000);
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
   };
 
   const handlePhoneSubmit = async () => {
@@ -739,67 +723,22 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     setLoading(true);
     setErrorMsg("");
     try {
-      const res = await fetch(SMS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send", phone: digits }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setErrorMsg(data.error || "Ошибка отправки"); triggerShake(); return; }
-      if (data.demo) setDemoCode(data.code || "");
-      setStep("code");
-      startResendTimer();
+      // Проверяем — есть ли уже пользователь с таким номером
+      const data = await api("get_me", { phone: digits });
+      if (data.user) {
+        // Номер уже зарегистрирован — сразу входим
+        setExisted(true);
+        onDone(data.user);
+      } else {
+        // Новый пользователь — просим имя
+        setStep("name");
+      }
     } catch {
       setErrorMsg("Нет соединения, попробуйте позже");
       triggerShake();
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleCodeChange = (i: number, val: string) => {
-    if (!/^\d*$/.test(val)) return;
-    const next = [...code];
-    next[i] = val.slice(-1);
-    setCode(next);
-    if (val && i < 5) codeRefs.current[i + 1]?.focus();
-    if (next.every(d => d !== "")) {
-      setTimeout(async () => {
-        const digits = phone.replace(/\D/g, "");
-        try {
-          const res = await fetch(SMS_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "verify", phone: digits, code: next.join("") }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            setStep("name");
-          } else {
-            setErrorMsg(data.error || "Неверный код");
-            triggerShake();
-            setCode(["", "", "", "", "", ""]);
-            codeRefs.current[0]?.focus();
-          }
-        } catch {
-          setErrorMsg("Нет соединения");
-          triggerShake();
-          setCode(["", "", "", "", "", ""]);
-          codeRefs.current[0]?.focus();
-        }
-      }, 300);
-    }
-  };
-
-  const handleCodeKeyDown = (i: number, e: React.KeyboardEvent) => {
-    if (e.key === "Backspace" && !code[i] && i > 0) {
-      codeRefs.current[i - 1]?.focus();
-    }
-  };
-
-  const triggerShake = () => {
-    setShake(true);
-    setTimeout(() => setShake(false), 500);
   };
 
   const handleNameSubmit = async () => {
@@ -826,12 +765,10 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
       <div className="mesh-bg" />
-
-      {/* Decorative blobs */}
       <div className="absolute top-[-10%] right-[-10%] w-80 h-80 rounded-full bg-violet-600/20 blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 rounded-full bg-sky-600/15 blur-3xl pointer-events-none" />
 
-      {/* Install banner */}
+      {/* Install banner Android */}
       {showInstall && (
         <div className="fixed bottom-6 left-4 right-4 z-50 glass rounded-2xl p-4 flex items-center gap-3 border border-violet-500/30 shadow-2xl animate-fade-in">
           <div className="w-12 h-12 grad-primary rounded-xl flex items-center justify-center flex-shrink-0">
@@ -875,11 +812,11 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
 
         {/* Step indicators */}
         <div className="flex items-center justify-center gap-2 mb-8">
-          {(["phone", "code", "name"] as AuthStep[]).map((s, i) => (
+          {(["phone", "name"] as const).map((s, i) => (
             <div key={s} className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+              <div className={`h-2 rounded-full transition-all duration-300 ${
                 step === s ? "w-6 grad-primary" :
-                (["phone", "code", "name"].indexOf(step) > i ? "bg-violet-500" : "bg-white/15")
+                (["phone", "name"].indexOf(step) > i ? "w-2 bg-violet-500" : "w-2 bg-white/15")
               }`} />
             </div>
           ))}
@@ -890,94 +827,36 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
           <div className="animate-fade-in space-y-4">
             <div>
               <h2 className="text-xl font-bold mb-1">Введите номер телефона</h2>
-              <p className="text-sm text-muted-foreground">Отправим код подтверждения по SMS</p>
+              <p className="text-sm text-muted-foreground">Ваш уникальный ID в Nova</p>
             </div>
             <div className={`flex items-center gap-3 glass rounded-2xl px-4 py-4 border ${shake ? "border-red-500/50" : "border-white/0 focus-within:border-violet-500/40"} transition-colors`}>
               <span className="text-2xl">🇷🇺</span>
               <input
                 autoFocus
                 value={phone}
-                onChange={handlePhoneChange}
+                onChange={e => setPhone(formatPhone(e.target.value))}
                 onKeyDown={e => e.key === "Enter" && handlePhoneSubmit()}
                 placeholder="+7 (___) ___-__-__"
                 className="flex-1 bg-transparent outline-none text-base text-foreground placeholder-muted-foreground font-medium"
                 type="tel"
               />
             </div>
+            {errorMsg && <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>}
             <button
               onClick={handlePhoneSubmit}
               disabled={loading}
               className="w-full py-4 grad-primary rounded-2xl text-white font-bold text-base glow-primary hover:opacity-90 transition-opacity disabled:opacity-70 flex items-center justify-center gap-2"
             >
               {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Отправляем...
-                </>
+                <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Проверяем...</>
               ) : (
-                <>Получить код <Icon name="ArrowRight" size={18} /></>
+                <>Продолжить <Icon name="ArrowRight" size={18} /></>
               )}
             </button>
-            {errorMsg && (
-              <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>
-            )}
             <p className="text-center text-xs text-muted-foreground">
-              Нажимая «Получить код», вы соглашаетесь с{" "}
+              Нажимая «Продолжить», вы соглашаетесь с{" "}
               <span className="text-violet-400 cursor-pointer">Условиями использования</span>
             </p>
-          </div>
-        )}
-
-        {/* Code step */}
-        {step === "code" && (
-          <div className="animate-fade-in space-y-4">
-            <div>
-              <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-violet-400 text-sm mb-3 hover:text-violet-300 transition-colors">
-                <Icon name="ChevronLeft" size={16} /> Изменить номер
-              </button>
-              <h2 className="text-xl font-bold mb-1">Код из SMS</h2>
-              <p className="text-sm text-muted-foreground">Отправили на <span className="text-foreground font-medium">{phone}</span></p>
-              {demoCode && (
-                <div className="mt-2 px-3 py-2 rounded-xl bg-violet-500/15 border border-violet-500/30 flex items-center gap-2">
-                  <Icon name="Info" size={14} className="text-violet-400 flex-shrink-0" />
-                  <p className="text-xs text-violet-300">SMS не настроен — ваш код: <span className="font-bold text-white tracking-widest">{demoCode}</span></p>
-                </div>
-              )}
-            </div>
-            <div className={`flex gap-2 justify-between ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
-              {code.map((digit, i) => (
-                <input
-                  key={i}
-                  ref={el => { codeRefs.current[i] = el; }}
-                  value={digit}
-                  onChange={e => handleCodeChange(i, e.target.value)}
-                  onKeyDown={e => handleCodeKeyDown(i, e)}
-                  maxLength={1}
-                  className={`w-12 h-14 text-center text-2xl font-bold glass rounded-2xl outline-none transition-all duration-200 ${
-                    digit ? "border border-violet-500/60 text-foreground" : "border border-white/5 text-muted-foreground"
-                  } focus:border-violet-500/80 bg-transparent`}
-                  type="text"
-                  inputMode="numeric"
-                />
-              ))}
-            </div>
-            {errorMsg && (
-              <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>
-            )}
-            <div className="text-center">
-              {resendTimer > 0 ? (
-                <span className="text-sm text-muted-foreground">
-                  Отправить повторно через <span className="text-violet-400">{resendTimer} сек</span>
-                </span>
-              ) : (
-                <button
-                  onClick={() => { setErrorMsg(""); handlePhoneSubmit(); }}
-                  className="text-sm text-violet-400 hover:text-violet-300 transition-colors"
-                >
-                  Отправить код повторно
-                </button>
-              )}
-            </div>
           </div>
         )}
 
@@ -985,17 +864,15 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
         {step === "name" && (
           <div className="animate-fade-in space-y-4">
             <div>
+              <button onClick={() => setStep("phone")} className="flex items-center gap-1 text-violet-400 text-sm mb-3 hover:text-violet-300 transition-colors">
+                <Icon name="ChevronLeft" size={16} /> Изменить номер
+              </button>
               <h2 className="text-xl font-bold mb-1">Как вас зовут?</h2>
-              <p className="text-sm text-muted-foreground">Ваше имя увидят другие пользователи</p>
+              <p className="text-sm text-muted-foreground">Ваше имя увидят собеседники</p>
             </div>
             <div className="flex flex-col items-center gap-4">
-              <div className="relative">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-4xl font-bold text-white glow-primary">
-                  {name.trim() ? name.trim()[0].toUpperCase() : "?"}
-                </div>
-                <button className="absolute bottom-0 right-0 w-8 h-8 grad-primary rounded-full flex items-center justify-center text-white shadow-lg">
-                  <Icon name="Camera" size={14} />
-                </button>
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-3xl font-bold text-white glow-primary">
+                {name.trim() ? name.trim()[0].toUpperCase() : "?"}
               </div>
               <div className={`w-full flex items-center gap-3 glass rounded-2xl px-4 py-4 border ${shake ? "border-red-500/50" : "border-white/0 focus-within:border-violet-500/40"} transition-colors`}>
                 <Icon name="User" size={18} className="text-muted-foreground" />
@@ -1009,16 +886,14 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
                 />
               </div>
             </div>
+            {errorMsg && <p className="text-center text-sm text-red-400 animate-fade-in">{errorMsg}</p>}
             <button
               onClick={handleNameSubmit}
               disabled={loading}
               className="w-full py-4 grad-primary rounded-2xl text-white font-bold text-base glow-primary hover:opacity-90 transition-opacity disabled:opacity-70 flex items-center justify-center gap-2"
             >
               {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Входим в Nova...
-                </>
+                <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Создаём аккаунт...</>
               ) : (
                 <>Начать общение <Icon name="Sparkles" size={18} /></>
               )}

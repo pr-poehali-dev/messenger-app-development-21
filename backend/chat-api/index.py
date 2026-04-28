@@ -61,10 +61,18 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите phone и name")
 
+        # Проверяем — есть ли уже пользователь с таким номером
+        cur.execute(f"SELECT id, phone, name, avatar_url, created_at FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        existing = cur.fetchone()
+        if existing:
+            # Номер уже занят — просто входим (обновляем last_seen)
+            cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE phone = %s", (int(time.time()), phone))
+            conn.close()
+            return ok({"user": {"id": existing[0], "phone": existing[1], "name": existing[2], "avatar_url": existing[3], "created_at": existing[4]}, "existed": True})
+
         cur.execute(
             f"""INSERT INTO {SCHEMA}.users (phone, name, last_seen, created_at)
                 VALUES (%s, %s, %s, %s)
-                ON CONFLICT (phone) DO UPDATE SET name = EXCLUDED.name, last_seen = EXCLUDED.last_seen
                 RETURNING id, phone, name, avatar_url, created_at""",
             (phone, name, int(time.time()), int(time.time()))
         )
