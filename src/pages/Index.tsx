@@ -37,6 +37,7 @@ export default function Index() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCall, setActiveCall] = useState<{ userId: number; name: string; callId: string; incoming: boolean } | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showPro, setShowPro] = useState(false);
 
   // Push-подписка
   useEffect(() => {
@@ -88,11 +89,16 @@ export default function Index() {
           online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
           partner_id: c.partner.id,
         }));
-        setRealChats(mapped);
+        // Обновляем только если реально что-то изменилось — иначе мигают ники
+        setRealChats(prev => {
+          const prevStr = JSON.stringify(prev.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time })));
+          const nextStr = JSON.stringify(mapped.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time })));
+          return prevStr === nextStr ? prev : mapped;
+        });
       }
     };
     loadChats();
-    const interval = setInterval(loadChats, 3000);
+    const interval = setInterval(loadChats, 5000);
     return () => clearInterval(interval);
   }, [currentUser]);
 
@@ -203,6 +209,44 @@ export default function Index() {
       {/* Mesh background */}
       <div className="mesh-bg" />
 
+      {/* Nova Pro modal */}
+      {showPro && (
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowPro(false)}>
+          <div className="w-full max-w-sm glass-strong rounded-t-3xl p-6 pb-10 animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl" style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+                👑
+              </div>
+            </div>
+            <h2 className="text-2xl font-black text-center mb-1">Nova Pro</h2>
+            <p className="text-muted-foreground text-sm text-center mb-6">Разблокируй все возможности мессенджера</p>
+            <div className="space-y-3 mb-6">
+              {[
+                { icon: "Zap", text: "Без рекламы навсегда" },
+                { icon: "Image", text: "Отправка файлов до 2 ГБ" },
+                { icon: "Shield", text: "Приоритетная поддержка" },
+                { icon: "Star", text: "Эксклюзивные темы оформления" },
+                { icon: "Users", text: "Групповые звонки до 50 человек" },
+              ].map(f => (
+                <div key={f.icon} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(245,158,11,0.15)" }}>
+                    <Icon name={f.icon as string} size={16} style={{ color: "#f59e0b" }} />
+                  </div>
+                  <span className="text-sm font-medium">{f.text}</span>
+                </div>
+              ))}
+            </div>
+            <button className="w-full py-4 rounded-2xl font-black text-white text-base" style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+              Оформить за 299 ₽/мес
+            </button>
+            <button onClick={() => setShowPro(false)} className="w-full py-3 text-sm text-muted-foreground mt-2">
+              Не сейчас
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Admin Panel */}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
 
@@ -242,8 +286,8 @@ export default function Index() {
           <div className="flex items-center gap-1">
             {/* Nova Pro badge */}
             <button
-              onClick={() => setView("settings")}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
+              onClick={() => setShowPro(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", color: "#fff" }}
             >
               <Icon name="Crown" size={12} />

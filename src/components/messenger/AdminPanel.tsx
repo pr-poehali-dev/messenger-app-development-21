@@ -37,6 +37,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [usersTotal, setUsersTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -97,10 +98,15 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   };
 
   const deleteUser = async (userId: number) => {
-    if (!confirm("Удалить пользователя? Это действие необратимо.")) return;
-    await adminApi("delete_user", { user_id: userId }, token);
-    setUsers(prev => prev.filter(u => u.id !== userId));
+    setConfirmDelete(userId);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!confirmDelete) return;
+    await adminApi("delete_user", { user_id: confirmDelete }, token);
+    setUsers(prev => prev.filter(u => u.id !== confirmDelete));
     setSelectedUser(null);
+    setConfirmDelete(null);
   };
 
   const loadColor = { low: "text-emerald-400", medium: "text-amber-400", high: "text-red-400" };
@@ -330,6 +336,33 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               className="w-full py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm font-semibold hover:bg-red-500/20 transition-colors">
               Удалить пользователя
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm delete dialog */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/70 animate-fade-in">
+          <div className="glass-strong rounded-3xl p-6 w-full max-w-xs mx-4 animate-scale-in">
+            <div className="w-12 h-12 bg-red-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Icon name="Trash2" size={22} className="text-red-400" />
+            </div>
+            <h3 className="font-bold text-center mb-1">Удалить пользователя?</h3>
+            <p className="text-xs text-muted-foreground text-center mb-5">Все сообщения и данные будут удалены. Это действие необратимо.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-3 glass rounded-xl text-sm font-semibold"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={confirmDeleteUser}
+                className="flex-1 py-3 bg-red-500 rounded-xl text-white text-sm font-bold hover:bg-red-600 transition-colors"
+              >
+                Удалить
+              </button>
+            </div>
           </div>
         </div>
       )}
