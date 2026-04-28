@@ -284,18 +284,26 @@ export default function Index() {
 
         {/* Bottom nav */}
         <div className="flex items-center justify-around px-4 py-3 border-t border-white/5">
-          {navItems.map(item => (
-            <button
-              key={item.tab}
-              onClick={() => { setView(item.tab); setShowSidebar(true); setSelectedChat(null); }}
-              className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                view === item.tab && !selectedChat ? "text-violet-400" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon name={item.icon as string} size={20} />
-              <span className="text-[9px] font-medium">{item.label}</span>
-            </button>
-          ))}
+          {navItems.map(item => {
+            const totalUnread = item.tab === "chats" ? realChats.reduce((s, c) => s + (c.unread || 0), 0) : 0;
+            return (
+              <button
+                key={item.tab}
+                onClick={() => { setView(item.tab); setShowSidebar(true); setSelectedChat(null); }}
+                className={`relative flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
+                  view === item.tab && !selectedChat ? "text-violet-400" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon name={item.icon as string} size={20} />
+                {totalUnread > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 grad-primary rounded-full text-[9px] font-bold text-white flex items-center justify-center">
+                    {totalUnread > 99 ? "99+" : totalUnread}
+                  </span>
+                )}
+                <span className="text-[9px] font-medium">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </aside>
 
@@ -312,7 +320,7 @@ export default function Index() {
         ) : view === "search" ? (
           <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} />
         ) : view === "profile" ? (
-          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} />
+          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} />
         ) : (

@@ -181,7 +181,7 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id")
         cur.execute(
-            f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name
+            f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name, m.image_url
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s
@@ -190,7 +190,7 @@ def handler(event: dict, context) -> dict:
         )
         rows = cur.fetchall()
         conn.close()
-        messages = [{"id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3], "read_at": r[4], "sender_name": r[5]} for r in rows]
+        messages = [{"id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3], "read_at": r[4], "sender_name": r[5], "image_url": r[6]} for r in rows]
         return ok({"messages": messages, "now": int(time.time())})
 
     # ── send_message ──────────────────────────────────────────────────────────
@@ -200,13 +200,16 @@ def handler(event: dict, context) -> dict:
             return err("Нужен X-User-Id")
         chat_id = body.get("chat_id")
         text = (body.get("text") or "").strip()
-        if not chat_id or not text:
+        image_url = (body.get("image_url") or "").strip()
+        if not chat_id or (not text and not image_url):
             conn.close()
-            return err("Укажите chat_id и text")
+            return err("Укажите chat_id и text или image_url")
+        if not text and image_url:
+            text = "📷 Фото"
         now = int(time.time())
         cur.execute(
-            f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
-            (int(chat_id), int(user_id), text, now)
+            f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, image_url, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (int(chat_id), int(user_id), text, image_url or None, now)
         )
         msg_id = cur.fetchone()[0]
         cur.execute(
@@ -245,7 +248,26 @@ def handler(event: dict, context) -> dict:
                 except Exception:
                     pass
 
-        return ok({"id": msg_id, "created_at": now})
+        return ok({"id": msg_id, "created_at": now, "image_url": image_url or None})
+
+    # ── update_profile ────────────────────────────────────────────────────────
+    if action == "update_profile":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        new_name = (body.get("name") or "").strip()
+        if not new_name or len(new_name) < 2:
+            conn.close()
+            return err("Имя слишком короткое")
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET name = %s WHERE id = %s RETURNING id, phone, name, avatar_url, created_at",
+            (new_name, int(user_id))
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return err("Пользователь не найден", 404)
+        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4]}})
 
     # ── mark_read ─────────────────────────────────────────────────────────────
     if action == "mark_read":

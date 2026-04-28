@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
-import { api, avatarGrad, type Chat, type Message, type Story, type User, type IconName, STORIES } from "@/lib/api";
+import { api, uploadImage, avatarGrad, type Chat, type Message, type Story, type User, type IconName, STORIES } from "@/lib/api";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -118,12 +118,14 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
   const [input, setInput] = useState("");
   const [showAttach, setShowAttach] = useState(false);
   const [lastSince, setLastSince] = useState(0);
+  const [uploading, setUploading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = async (since = 0) => {
     const data = await api("get_messages", { chat_id: chat.id, since }, currentUser.id);
     if (data.messages && data.messages.length > 0) {
-      const mapped: Message[] = data.messages.map((m: { id: number; text: string; created_at: number; sender_id: number; read_at?: number }) => ({
+      const mapped: Message[] = data.messages.map((m: { id: number; text: string; created_at: number; sender_id: number; read_at?: number; image_url?: string }) => ({
         id: m.id,
         text: m.text,
         time: new Date(m.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }),
@@ -131,6 +133,7 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
         read: !!m.read_at,
         sender_id: m.sender_id,
         created_at: m.created_at,
+        image_url: m.image_url,
       }));
       if (since === 0) {
         setMessages(mapped);
@@ -166,10 +169,25 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
     setInput("");
     const data = await api("send_message", { chat_id: chat.id, text }, currentUser.id);
     if (data.id) {
-      const now = new Date(data.created_at * 1000);
-      const timeStr = now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+      const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
       setMessages(prev => [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at }]);
       setLastSince(data.created_at);
+    }
+  };
+
+  const sendPhoto = async (file: File) => {
+    setUploading(true);
+    setShowAttach(false);
+    try {
+      const url = await uploadImage(file, currentUser.id);
+      const data = await api("send_message", { chat_id: chat.id, text: "📷 Фото", image_url: url }, currentUser.id);
+      if (data.id) {
+        const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+        setMessages(prev => [...prev, { id: data.id, text: "📷 Фото", image_url: url, time: timeStr, out: true, created_at: data.created_at }]);
+        setLastSince(data.created_at);
+      }
+    } catch { /* ignore */ } finally {
+      setUploading(false);
     }
   };
 
@@ -221,13 +239,23 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5">
         {messages.map((msg, i) => (
           <div key={msg.id} className={`flex ${msg.out ? "justify-end" : "justify-start"} animate-fade-in`} style={{ animationDelay: `${i * 0.04}s` }}>
-            <div className={`max-w-[72%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+            <div className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden ${
               msg.out
                 ? "msg-bubble-out text-white rounded-tr-sm"
                 : "msg-bubble-in text-foreground rounded-tl-sm"
             }`}>
-              <p>{msg.text}</p>
-              <div className={`flex items-center gap-1 mt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
+              {msg.image_url && (
+                <img
+                  src={msg.image_url}
+                  alt="фото"
+                  className="w-full max-w-[260px] rounded-xl object-cover cursor-pointer"
+                  onClick={() => window.open(msg.image_url, "_blank")}
+                />
+              )}
+              {(!msg.image_url || msg.text !== "📷 Фото") && (
+                <p className="px-4 py-2.5">{msg.text}</p>
+              )}
+              <div className={`flex items-center gap-1 px-4 pb-2 ${msg.out ? "justify-end" : "justify-start"}`}>
                 <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
                 {msg.out && (
                   <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
@@ -247,11 +275,24 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
       </div>
 
       {/* Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) sendPhoto(f); e.target.value = ""; }}
+      />
       <div className="px-4 py-3 glass-strong border-t border-white/5">
         {showAttach && (
           <div className="flex gap-2 mb-3 animate-fade-in">
+            <button
+              onClick={() => { fileInputRef.current?.click(); }}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl flex-1 hover:bg-white/8 transition-colors"
+            >
+              <Icon name="Image" size={20} className="text-violet-400" />
+              <span className="text-[10px] text-muted-foreground">Фото</span>
+            </button>
             {[
-              { icon: "Image", label: "Фото", color: "text-violet-400" },
               { icon: "Video", label: "Видео", color: "text-sky-400" },
               { icon: "FileText", label: "Файл", color: "text-emerald-400" },
               { icon: "Music", label: "Аудио", color: "text-pink-400" },
@@ -261,6 +302,12 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
                 <span className="text-[10px] text-muted-foreground">{item.label}</span>
               </button>
             ))}
+          </div>
+        )}
+        {uploading && (
+          <div className="flex items-center gap-2 mb-2 px-1 animate-fade-in">
+            <div className="w-4 h-4 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+            <span className="text-xs text-muted-foreground">Загружаем фото...</span>
           </div>
         )}
         <div className="flex items-end gap-2">

@@ -1,5 +1,27 @@
 export const CHAT_API = "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3";
 export const PUSH_API = "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af";
+export const UPLOAD_API = "https://functions.poehali.dev/c0e361f0-438f-44b3-8886-26f5afb7d935";
+
+export async function uploadImage(file: File, userId: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = (reader.result as string).split(",")[1];
+        const res = await fetch(UPLOAD_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-User-Id": String(userId) },
+          body: JSON.stringify({ data: base64, mime: file.type }),
+        });
+        const data = await res.json();
+        if (data.url) resolve(data.url);
+        else reject(new Error(data.error || "Ошибка загрузки"));
+      } catch (e) { reject(e); }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export async function api(action: string, body: Record<string, unknown> = {}, userId?: number) {
   const res = await fetch(CHAT_API, {
@@ -40,6 +62,7 @@ export interface Message {
   read?: boolean;
   sender_id?: number;
   created_at?: number;
+  image_url?: string;
   file?: { name: string; size: string };
 }
 

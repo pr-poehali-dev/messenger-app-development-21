@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
-import { avatarGrad, type Story, type User, type IconName, STORIES } from "@/lib/api";
+import { api, avatarGrad, type Story, type User, type IconName, STORIES } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
 
 // ─── StoryViewer ──────────────────────────────────────────────────────────────
@@ -110,11 +110,28 @@ export function SearchPanel({ users, currentUser, onStartChat }: { users: User[]
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser }: { onSettings: () => void; currentUser: User }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(currentUser.name);
+  const [saving, setSaving] = useState(false);
+
   const formatPhone = (phone: string) => {
     const d = phone.replace(/\D/g, "");
     if (d.length === 11) return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9)}`;
     return phone;
+  };
+
+  const saveName = async () => {
+    if (editName.trim().length < 2) return;
+    setSaving(true);
+    try {
+      const data = await api("update_profile", { name: editName.trim() }, currentUser.id);
+      if (data.user) {
+        onUserUpdate?.(data.user);
+        localStorage.setItem("nova_user", JSON.stringify(data.user));
+        setEditing(false);
+      }
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   return (
@@ -129,7 +146,30 @@ export function ProfilePanel({ onSettings, currentUser }: { onSettings: () => vo
             <Icon name="Camera" size={14} />
           </button>
         </div>
-        <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+        {editing ? (
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <input
+              autoFocus
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditing(false); }}
+              className="text-xl font-bold bg-transparent border-b-2 border-violet-500 outline-none text-center w-48"
+            />
+            <button onClick={saveName} disabled={saving} className="p-1.5 grad-primary rounded-lg text-white">
+              {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Icon name="Check" size={14} />}
+            </button>
+            <button onClick={() => setEditing(false)} className="p-1.5 glass rounded-lg text-muted-foreground">
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+            <button onClick={() => { setEditName(currentUser.name); setEditing(true); }} className="p-1 text-muted-foreground hover:text-violet-400 transition-colors">
+              <Icon name="Pencil" size={14} />
+            </button>
+          </div>
+        )}
         <p className="text-muted-foreground text-sm mt-1">{formatPhone(currentUser.phone)}</p>
         <div className="flex items-center justify-center gap-2 mt-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400" />
