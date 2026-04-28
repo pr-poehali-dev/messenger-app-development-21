@@ -219,5 +219,54 @@ def handler(event: dict, context) -> dict:
             "msg_count": msg_count, "chat_count": chat_count,
         }})
 
+    # ── send_to_user — написать пользователю от имени разработчика ───────────
+    if action == "send_to_user":
+        target_user_id = body.get("user_id")
+        text = (body.get("text") or "").strip()
+        if not target_user_id or not text:
+            conn.close()
+            return err("Нужен user_id и text")
+
+        # Находим или создаём системного пользователя "Nova Dev"
+        cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE phone = '00000000000'")
+        dev_user = cur.fetchone()
+        if not dev_user:
+            now = int(time.time())
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.users (phone, name, last_seen, created_at)
+                    VALUES ('00000000000', 'Nova Dev', %s, %s)
+                    RETURNING id""",
+                (now, now)
+            )
+            dev_user_id = cur.fetchone()[0]
+        else:
+            dev_user_id = dev_user[0]
+
+        # Создаём чат между dev и пользователем
+        uid, pid = sorted([dev_user_id, int(target_user_id)])
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chats (user1_id, user2_id, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user1_id, user2_id) DO UPDATE SET user1_id = EXCLUDED.user1_id
+                RETURNING id""",
+            (uid, pid, int(time.time()))
+        )
+        chat_id = cur.fetchone()[0]
+
+        # Отправляем сообщение
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at)
+                VALUES (%s, %s, %s, %s) RETURNING id""",
+            (chat_id, dev_user_id, text, now)
+        )
+        msg_id = cur.fetchone()[0]
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message = %s, last_message_at = %s WHERE id = %s",
+            (text[:100], now, chat_id)
+        )
+        conn.close()
+        return ok({"ok": True, "msg_id": msg_id, "chat_id": chat_id})
+
     conn.close()
     return err("Неизвестный action")

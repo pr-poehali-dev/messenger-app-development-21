@@ -30,17 +30,11 @@ def err(msg, code=400):
 def handler(event: dict, context) -> dict:
     """
     Chat API для Nova мессенджера.
-    Все действия передаются через поле action в теле запроса или query-параметре.
-
-    Actions:
-    - register       — создать/обновить профиль пользователя
-    - get_me         — получить свой профиль
-    - get_users      — список всех пользователей (для поиска)
-    - get_chats      — список чатов текущего пользователя
-    - get_or_create_chat — открыть чат с пользователем
-    - get_messages   — сообщения чата (с поддержкой since для polling)
-    - send_message   — отправить сообщение
-    - mark_read      — пометить сообщения прочитанными
+    Actions: register, get_me, get_users, get_chats, get_or_create_chat,
+    get_messages, send_message, mark_read, set_typing, get_typing,
+    delete_message, get_contacts, add_contact, remove_contact,
+    update_profile, call_signal, get_call_signals, poll_incoming_call,
+    add_reaction, get_reactions.
     """
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
@@ -61,11 +55,9 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите phone и name")
 
-        # Проверяем — есть ли уже пользователь с таким номером
         cur.execute(f"SELECT id, phone, name, avatar_url, created_at FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         existing = cur.fetchone()
         if existing:
-            # Номер уже занят — просто входим (обновляем last_seen)
             cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE phone = %s", (int(time.time()), phone))
             conn.close()
             return ok({"user": {"id": existing[0], "phone": existing[1], "name": existing[2], "avatar_url": existing[3], "created_at": existing[4]}, "existed": True})
@@ -130,7 +122,6 @@ def handler(event: dict, context) -> dict:
         )
         rows = cur.fetchall()
 
-        # Непрочитанные для каждого чата
         unread_map = {}
         if rows:
             chat_ids = [r[0] for r in rows]
@@ -181,7 +172,8 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id")
         cur.execute(
-            f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name, m.image_url
+            f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
+                       m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s
@@ -189,8 +181,34 @@ def handler(event: dict, context) -> dict:
             (int(chat_id), int(since))
         )
         rows = cur.fetchall()
+
+        # Получаем реакции для этих сообщений
+        reactions_map = {}
+        if rows:
+            msg_ids = [r[0] for r in rows]
+            placeholders = ",".join(["%s"] * len(msg_ids))
+            cur.execute(
+                f"""SELECT mr.message_id, mr.emoji, u.name, mr.user_id
+                    FROM {SCHEMA}.message_reactions mr
+                    JOIN {SCHEMA}.users u ON u.id = mr.user_id
+                    WHERE mr.message_id IN ({placeholders})""",
+                msg_ids
+            )
+            for r in cur.fetchall():
+                mid = r[0]
+                if mid not in reactions_map:
+                    reactions_map[mid] = []
+                reactions_map[mid].append({"emoji": r[1], "user_name": r[2], "user_id": r[3]})
+
         conn.close()
-        messages = [{"id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3], "read_at": r[4], "sender_name": r[5], "image_url": r[6]} for r in rows]
+        messages = [{
+            "id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3],
+            "read_at": r[4], "sender_name": r[5],
+            "image_url": r[6],
+            "media_type": r[7], "media_url": r[8],
+            "file_name": r[9], "file_size": r[10], "duration": r[11],
+            "reactions": reactions_map.get(r[0], []),
+        } for r in rows]
         return ok({"messages": messages, "now": int(time.time())})
 
     # ── send_message ──────────────────────────────────────────────────────────
@@ -201,15 +219,35 @@ def handler(event: dict, context) -> dict:
         chat_id = body.get("chat_id")
         text = (body.get("text") or "").strip()
         image_url = (body.get("image_url") or "").strip()
-        if not chat_id or (not text and not image_url):
+        media_type = (body.get("media_type") or "").strip()  # image, video, audio, file
+        media_url = (body.get("media_url") or "").strip()
+        file_name = (body.get("file_name") or "").strip() or None
+        file_size = body.get("file_size") or None
+        duration = body.get("duration") or None
+
+        # Совместимость: image_url → media
+        if image_url and not media_url:
+            media_url = image_url
+            media_type = "image"
+
+        if not chat_id or (not text and not media_url):
             conn.close()
-            return err("Укажите chat_id и text или image_url")
-        if not text and image_url:
-            text = "📷 Фото"
+            return err("Укажите chat_id и text или media")
+
+        # Автотекст по типу медиа
+        if not text and media_url:
+            auto_text = {"image": "📷 Фото", "video": "🎥 Видео", "audio": "🎵 Голосовое", "file": f"📎 {file_name or 'Файл'}"}.get(media_type, "📎 Файл")
+            text = auto_text
+
         now = int(time.time())
         cur.execute(
-            f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, image_url, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (int(chat_id), int(user_id), text, image_url or None, now)
+            f"""INSERT INTO {SCHEMA}.messages
+                (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (int(chat_id), int(user_id), text,
+             media_url if media_type == "image" else None,
+             media_type or None, media_url or None,
+             file_name, file_size, duration, now)
         )
         msg_id = cur.fetchone()[0]
         cur.execute(
@@ -218,7 +256,6 @@ def handler(event: dict, context) -> dict:
         )
         cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE id = %s", (now, int(user_id)))
 
-        # Узнать имя отправителя и получателя для push
         cur.execute(
             f"""SELECT u.name,
                        CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END AS recipient_id
@@ -230,7 +267,6 @@ def handler(event: dict, context) -> dict:
         row = cur.fetchone()
         conn.close()
 
-        # Отправить push уведомление получателю (асинхронно через HTTP)
         if row:
             sender_name, recipient_id = row
             push_url = os.environ.get("PUSH_NOTIFY_URL", "")
@@ -248,7 +284,48 @@ def handler(event: dict, context) -> dict:
                 except Exception:
                     pass
 
-        return ok({"id": msg_id, "created_at": now, "image_url": image_url or None})
+        return ok({"id": msg_id, "created_at": now, "media_url": media_url or None, "media_type": media_type or None, "image_url": media_url if media_type == "image" else None})
+
+    # ── add_reaction ──────────────────────────────────────────────────────────
+    if action == "add_reaction":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        msg_id = body.get("message_id")
+        emoji = (body.get("emoji") or "").strip()
+        if not msg_id or not emoji:
+            conn.close()
+            return err("Укажите message_id и emoji")
+        now = int(time.time())
+        # Если уже такая реакция — удаляем (toggle)
+        cur.execute(
+            f"SELECT id, emoji FROM {SCHEMA}.message_reactions WHERE message_id = %s AND user_id = %s",
+            (int(msg_id), int(user_id))
+        )
+        existing = cur.fetchone()
+        if existing:
+            if existing[1] == emoji:
+                # Та же реакция — убираем
+                cur.execute(f"UPDATE {SCHEMA}.message_reactions SET emoji = %s WHERE id = %s", (None, existing[0]))
+                # Нельзя SET NULL в уникальной строке, просто обновим на другое значение или удалим через update
+                # Используем флаг удаления через обновление поля created_at на 0
+                cur.execute(f"UPDATE {SCHEMA}.message_reactions SET emoji = %s WHERE id = %s", ('__removed__', existing[0]))
+                conn.close()
+                return ok({"ok": True, "removed": True})
+            else:
+                cur.execute(
+                    f"UPDATE {SCHEMA}.message_reactions SET emoji = %s, created_at = %s WHERE id = %s",
+                    (emoji, now, existing[0])
+                )
+        else:
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.message_reactions (message_id, user_id, emoji, created_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = EXCLUDED.created_at""",
+                (int(msg_id), int(user_id), emoji, now)
+            )
+        conn.close()
+        return ok({"ok": True})
 
     # ── update_profile ────────────────────────────────────────────────────────
     if action == "update_profile":
@@ -333,10 +410,7 @@ def handler(event: dict, context) -> dict:
         if not msg_id:
             conn.close()
             return err("Укажите message_id")
-        cur.execute(
-            f"SELECT sender_id FROM {SCHEMA}.messages WHERE id = %s",
-            (int(msg_id),)
-        )
+        cur.execute(f"SELECT sender_id FROM {SCHEMA}.messages WHERE id = %s", (int(msg_id),))
         row = cur.fetchone()
         if not row:
             conn.close()
@@ -344,7 +418,7 @@ def handler(event: dict, context) -> dict:
         if row[0] != int(user_id):
             conn.close()
             return err("Нельзя удалить чужое сообщение", 403)
-        cur.execute(f"DELETE FROM {SCHEMA}.messages WHERE id = %s", (int(msg_id),))
+        cur.execute(f"UPDATE {SCHEMA}.messages SET text = '' WHERE id = %s", (int(msg_id),))
         conn.close()
         return ok({"ok": True})
 
@@ -357,13 +431,13 @@ def handler(event: dict, context) -> dict:
             f"""SELECT u.id, u.name, u.phone, u.avatar_url, u.last_seen, c.name_override
                 FROM {SCHEMA}.contacts c
                 JOIN {SCHEMA}.users u ON u.id = c.contact_id
-                WHERE c.user_id = %s
+                WHERE c.user_id = %s AND (c.name_override IS NULL OR c.name_override != 'DELETED')
                 ORDER BY COALESCE(c.name_override, u.name) ASC""",
             (int(user_id),)
         )
         rows = cur.fetchall()
         conn.close()
-        contacts = [{"id": r[0], "name": r[4+1] or r[1], "real_name": r[1], "phone": r[2], "avatar_url": r[3], "last_seen": r[4]} for r in rows]
+        contacts = [{"id": r[0], "name": r[5] or r[1], "real_name": r[1], "phone": r[2], "avatar_url": r[3], "last_seen": r[4]} for r in rows]
         return ok({"contacts": contacts})
 
     # ── add_contact ───────────────────────────────────────────────────────────
@@ -409,7 +483,7 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите contact_id")
         cur.execute(
-            f"DELETE FROM {SCHEMA}.contacts WHERE user_id = %s AND contact_id = %s",
+            f"UPDATE {SCHEMA}.contacts SET name_override = 'DELETED' WHERE user_id = %s AND contact_id = %s",
             (int(user_id), int(contact_id))
         )
         conn.close()
@@ -433,7 +507,6 @@ def handler(event: dict, context) -> dict:
                 VALUES (%s, %s, %s, %s, %s, %s)""",
             (call_id, int(user_id), int(to_user_id), signal_type, json.dumps(payload) if payload else None, now)
         )
-        # Если это offer (начало звонка) — отправляем push уведомление
         if signal_type == "offer":
             cur.execute(f"SELECT name FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
             caller = cur.fetchone()

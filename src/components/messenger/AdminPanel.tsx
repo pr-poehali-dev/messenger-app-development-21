@@ -41,6 +41,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showMessage, setShowMessage] = useState(false);
+  const [messageText, setMessageText] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
 
   const login = async () => {
     setAuthError("");
@@ -332,6 +335,45 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                 {saving ? "..." : "Сохранить"}
               </button>
             </div>
+            <button
+              onClick={() => setShowMessage(true)}
+              className="w-full py-2.5 mb-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 rounded-xl text-sm font-semibold hover:bg-violet-500/20 transition-colors"
+            >
+              ✉️ Написать сообщение
+            </button>
+            {showMessage && (
+              <div className="mb-2 animate-fade-in">
+                <textarea
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value)}
+                  placeholder="Текст сообщения от Nova Dev..."
+                  className="w-full glass rounded-xl px-4 py-2.5 text-sm outline-none resize-none mb-2"
+                  rows={3}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowMessage(false); setMessageText(""); }}
+                    className="flex-1 py-2 glass rounded-xl text-sm text-muted-foreground"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!messageText.trim() || !selectedUser) return;
+                      setMessageSending(true);
+                      await adminApi("send_to_user", { user_id: selectedUser.id, text: messageText.trim() }, token);
+                      setMessageSending(false);
+                      setShowMessage(false);
+                      setMessageText("");
+                    }}
+                    disabled={messageSending || !messageText.trim()}
+                    className="flex-1 py-2 grad-primary rounded-xl text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    {messageSending ? "..." : "Отправить"}
+                  </button>
+                </div>
+              </div>
+            )}
             <button onClick={() => deleteUser(selectedUser.id)}
               className="w-full py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm font-semibold hover:bg-red-500/20 transition-colors">
               Удалить пользователя

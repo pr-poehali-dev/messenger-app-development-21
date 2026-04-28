@@ -20,14 +20,18 @@ const ICE_SERVERS = [
 ];
 
 export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIncoming, onClose }: CallScreenProps) {
+  const isVideo = callId.startsWith("video_");
   const [state, setState] = useState<CallState>(isIncoming ? "ringing" : "calling");
   const [muted, setMuted] = useState(false);
+  const [videoOff, setVideoOff] = useState(false);
   const [speaker, setSpeaker] = useState(true);
   const [duration, setDuration] = useState(0);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sinceRef = useRef(Math.floor(Date.now() / 1000) - 5);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -38,6 +42,8 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     pcRef.current?.close();
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     stopRingtone();
     stopDialTone();
   };
@@ -53,8 +59,14 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
   };
 
   const initPC = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const constraints = isVideo ? { audio: true, video: { facingMode: "user" } } : { audio: true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStreamRef.current = stream;
+
+    if (isVideo && localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+      localVideoRef.current.play().catch(() => {});
+    }
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     pcRef.current = pc;
@@ -66,7 +78,10 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     };
 
     pc.ontrack = (e) => {
-      if (remoteAudioRef.current) {
+      if (isVideo && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.play().catch(() => {});
+      } else if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = e.streams[0];
         remoteAudioRef.current.play().catch(() => {});
       }
@@ -162,19 +177,43 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-[#0d0d1a] py-16 px-8 animate-fade-in">
       <audio ref={remoteAudioRef} autoPlay playsInline />
 
+      {/* Video views */}
+      {isVideo && (
+        <>
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: state === "connected" ? 1 : 0 }}
+          />
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute bottom-32 right-4 w-28 h-40 object-cover rounded-2xl border-2 border-white/20 z-10"
+            style={{ display: !videoOff ? "block" : "none" }}
+          />
+        </>
+      )}
+
       {/* Top info */}
-      <div className="flex flex-col items-center gap-4 mt-8">
-        <div className={`w-28 h-28 rounded-full flex items-center justify-center text-5xl font-bold text-white animate-pulse-glow ${avatarGrad(remoteUserId)}`}>
-          {remoteName[0]?.toUpperCase()}
-        </div>
-        <h2 className="text-2xl font-bold text-white">{remoteName}</h2>
+      <div className="flex flex-col items-center gap-4 mt-8 relative z-10">
+        {(!isVideo || state !== "connected") && (
+          <div className={`w-28 h-28 rounded-full flex items-center justify-center text-5xl font-bold text-white animate-pulse-glow bg-gradient-to-br ${avatarGrad(remoteUserId)}`}>
+            {remoteName[0]?.toUpperCase()}
+          </div>
+        )}
+        <h2 className="text-2xl font-bold text-white drop-shadow">{remoteName}</h2>
         <p className={`text-sm font-medium ${state === "connected" ? "text-emerald-400" : "text-muted-foreground"}`}>
           {stateLabel}
         </p>
+        {isVideo && <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/10 text-xs text-white/70"><Icon name="Video" size={12} />Видеозвонок</div>}
       </div>
 
-      {/* Waveform placeholder */}
-      {state === "connected" && (
+      {/* Waveform placeholder (audio only) */}
+      {state === "connected" && !isVideo && (
         <div className="flex items-end gap-1 h-10">
           {Array.from({ length: 20 }).map((_, i) => (
             <div
@@ -185,7 +224,8 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
           ))}
         </div>
       )}
-      {state !== "connected" && <div className="h-10" />}
+      {state !== "connected" && !isVideo && <div className="h-10" />}
+      {isVideo && <div className="h-10" />}
 
       {/* Controls */}
       <div className="w-full">
@@ -246,6 +286,23 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
               </button>
               <span className="text-xs text-muted-foreground">Динамик</span>
             </div>
+
+            {isVideo && (
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  onClick={() => {
+                    setVideoOff(v => {
+                      localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = v; });
+                      return !v;
+                    });
+                  }}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${videoOff ? "bg-red-500/20 text-red-400" : "glass text-foreground"}`}
+                >
+                  <Icon name={videoOff ? "VideoOff" : "Video"} size={22} />
+                </button>
+                <span className="text-xs text-muted-foreground">Камера</span>
+              </div>
+            )}
           </div>
         )}
       </div>

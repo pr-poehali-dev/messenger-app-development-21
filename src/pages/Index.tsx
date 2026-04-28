@@ -270,10 +270,11 @@ export default function Index() {
         className={`
           flex flex-col w-full md:w-80 lg:w-96 flex-shrink-0
           glass-strong border-r border-white/5
-          transition-transform duration-300
+          transition-transform duration-300 ease-in-out
           ${showSidebar ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-          absolute md:relative inset-0 md:inset-auto z-10
+          fixed md:relative top-0 left-0 bottom-0 md:inset-auto z-20 md:z-auto
         `}
+        style={{ width: "100%" }}
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between px-4 pb-3" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
@@ -381,9 +382,8 @@ export default function Index() {
       {/* ── Main area ── */}
       <main className={`
         flex-1 flex flex-col overflow-hidden
-        transition-all duration-300
-        ${!showSidebar || selectedChat ? "translate-x-0" : "md:translate-x-0"}
-        absolute md:relative inset-0 md:inset-auto
+        transition-transform duration-300 ease-in-out
+        fixed md:relative top-0 right-0 bottom-0 left-0 md:inset-auto
         ${showSidebar && !selectedChat ? "translate-x-full md:translate-x-0" : "translate-x-0"}
       `}>
         {selectedChat ? (
@@ -393,6 +393,10 @@ export default function Index() {
             currentUser={currentUser}
             onCall={(partnerId, name) => {
               const callId = `${currentUser.id}_${partnerId}_${Date.now()}`;
+              setActiveCall({ userId: partnerId, name, callId, incoming: false });
+            }}
+            onVideoCall={(partnerId, name) => {
+              const callId = `video_${currentUser.id}_${partnerId}_${Date.now()}`;
               setActiveCall({ userId: partnerId, name, callId, incoming: false });
             }}
           />

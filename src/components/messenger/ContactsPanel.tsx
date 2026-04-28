@@ -53,7 +53,16 @@ export function ContactsPanel({
 
   const openChat = async (contact: Contact) => {
     const data = await api("get_or_create_chat", { partner_id: contact.id }, currentUser.id);
-    if (data.chat) onStartChat(data.chat);
+    if (data.chat_id) {
+      onStartChat({
+        id: data.chat_id,
+        name: contact.name,
+        avatar: contact.name[0]?.toUpperCase() || "?",
+        lastMsg: "",
+        time: "",
+        partner_id: contact.id,
+      });
+    }
   };
 
   const filtered = contacts.filter(c =>
