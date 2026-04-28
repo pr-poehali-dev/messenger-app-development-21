@@ -128,6 +128,8 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
   const [showAttach, setShowAttach] = useState(false);
   const [lastSince, setLastSince] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -170,9 +172,24 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
     return () => clearInterval(interval);
   }, [chat.id, lastSince]);
 
+  // Polling typing статуса собеседника
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const data = await api("get_typing", { chat_id: chat.id }, currentUser.id);
+      setIsTyping(!!data.typing);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [chat.id]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
+
+  const notifyTyping = () => {
+    api("set_typing", { chat_id: chat.id }, currentUser.id);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {}, 3000);
+  };
 
   const send = async () => {
     if (!input.trim()) return;
@@ -323,10 +340,11 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
             </div>
           </div>
         ))}
-        {chat.typing && (
-          <div className="flex justify-start">
-            <div className="msg-bubble-in rounded-2xl rounded-tl-sm">
+        {isTyping && (
+          <div className="flex justify-start animate-fade-in">
+            <div className="flex items-center gap-2 msg-bubble-in rounded-2xl rounded-tl-sm px-3 py-2">
               <TypingIndicator />
+              <span className="text-xs text-violet-400 font-medium">{chat.name.split(" ")[0]} печатает</span>
             </div>
           </div>
         )}
@@ -379,7 +397,7 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
           <div className="flex-1 flex items-end glass rounded-2xl px-4 py-2.5 gap-2">
             <textarea
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => { setInput(e.target.value); notifyTyping(); }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="Сообщение..."
               rows={1}

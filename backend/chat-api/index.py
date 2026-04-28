@@ -269,6 +269,44 @@ def handler(event: dict, context) -> dict:
             return err("Пользователь не найден", 404)
         return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4]}})
 
+    # ── set_typing ────────────────────────────────────────────────────────────
+    if action == "set_typing":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.typing_status (chat_id, user_id, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (chat_id, user_id) DO UPDATE SET updated_at = EXCLUDED.updated_at""",
+            (int(chat_id), int(user_id), now)
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── get_typing ────────────────────────────────────────────────────────────
+    if action == "get_typing":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id") or params.get("chat_id")
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        now = int(time.time())
+        cur.execute(
+            f"""SELECT user_id FROM {SCHEMA}.typing_status
+                WHERE chat_id = %s AND user_id != %s AND updated_at > %s""",
+            (int(chat_id), int(user_id), now - 4)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"typing": len(rows) > 0})
+
     # ── mark_read ─────────────────────────────────────────────────────────────
     if action == "mark_read":
         if not user_id:
