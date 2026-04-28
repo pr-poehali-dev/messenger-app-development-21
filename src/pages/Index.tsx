@@ -268,13 +268,14 @@ export default function Index() {
       {/* ── Sidebar ── */}
       <aside
         className={`
-          flex flex-col w-full md:w-80 lg:w-96 flex-shrink-0
+          flex flex-col flex-shrink-0
           glass-strong border-r border-white/5
           transition-transform duration-300 ease-in-out
-          ${showSidebar ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-          fixed md:relative top-0 left-0 bottom-0 md:inset-auto z-20 md:z-auto
+          md:w-80 lg:w-96
+          absolute inset-y-0 left-0 z-20 w-full
+          md:relative md:translate-x-0 md:z-auto
+          ${showSidebar ? "translate-x-0" : "-translate-x-full"}
         `}
-        style={{ width: "100%" }}
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between px-4 pb-3" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}>
@@ -383,7 +384,7 @@ export default function Index() {
       <main className={`
         flex-1 flex flex-col overflow-hidden
         transition-transform duration-300 ease-in-out
-        fixed md:relative top-0 right-0 bottom-0 left-0 md:inset-auto
+        absolute inset-0 md:relative
         ${showSidebar && !selectedChat ? "translate-x-full md:translate-x-0" : "translate-x-0"}
       `}>
         {selectedChat ? (
