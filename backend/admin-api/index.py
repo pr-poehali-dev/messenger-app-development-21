@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import urllib.request
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p67547116_messenger_app_develo")
@@ -266,6 +267,23 @@ def handler(event: dict, context) -> dict:
             (text[:100], now, chat_id)
         )
         conn.close()
+
+        # Push-уведомление пользователю
+        push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+        if push_url:
+            try:
+                push_body = json.dumps({
+                    "action": "send",
+                    "recipient_id": int(target_user_id),
+                    "sender_name": "Nova Dev",
+                    "message": text[:100],
+                    "chat_id": chat_id,
+                }).encode("utf-8")
+                req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+
         return ok({"ok": True, "msg_id": msg_id, "chat_id": chat_id})
 
     conn.close()
