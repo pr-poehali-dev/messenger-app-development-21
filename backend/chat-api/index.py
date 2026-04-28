@@ -286,5 +286,29 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True})
 
+    # ── delete_message ────────────────────────────────────────────────────────
+    if action == "delete_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        msg_id = body.get("message_id")
+        if not msg_id:
+            conn.close()
+            return err("Укажите message_id")
+        cur.execute(
+            f"SELECT sender_id FROM {SCHEMA}.messages WHERE id = %s",
+            (int(msg_id),)
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return err("Сообщение не найдено", 404)
+        if row[0] != int(user_id):
+            conn.close()
+            return err("Нельзя удалить чужое сообщение", 403)
+        cur.execute(f"DELETE FROM {SCHEMA}.messages WHERE id = %s", (int(msg_id),))
+        conn.close()
+        return ok({"ok": True})
+
     conn.close()
     return err("Неизвестный action")

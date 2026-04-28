@@ -119,8 +119,10 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
   const [showAttach, setShowAttach] = useState(false);
   const [lastSince, setLastSince] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadMessages = async (since = 0) => {
     const data = await api("get_messages", { chat_id: chat.id, since }, currentUser.id);
@@ -175,6 +177,17 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
     }
   };
 
+  const deleteMessage = async (msgId: number) => {
+    setCtxMenu(null);
+    await api("delete_message", { message_id: msgId }, currentUser.id);
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+  };
+
+  const startHold = (msgId: number, out: boolean) => {
+    holdTimer.current = setTimeout(() => setCtxMenu({ msgId, out }), 500);
+  };
+  const cancelHold = () => { if (holdTimer.current) clearTimeout(holdTimer.current); };
+
   const sendPhoto = async (file: File) => {
     setUploading(true);
     setShowAttach(false);
@@ -192,7 +205,7 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
   };
 
   return (
-    <div className="flex flex-col h-full animate-fade-in">
+    <div className="flex flex-col h-full animate-fade-in relative">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 glass-strong border-b border-white/5">
         <button onClick={onBack} className="md:hidden p-2 rounded-xl hover:bg-white/8 transition-colors">
@@ -235,11 +248,48 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
         </div>
       </div>
 
+      {/* Context menu overlay */}
+      {ctxMenu && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
+          onClick={() => setCtxMenu(null)}
+        >
+          <div className="glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[180px] animate-scale-in" onClick={e => e.stopPropagation()}>
+            {ctxMenu.out && (
+              <button
+                onClick={() => deleteMessage(ctxMenu.msgId)}
+                className="w-full flex items-center gap-3 px-5 py-3.5 text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium"
+              >
+                <Icon name="Trash2" size={16} />
+                Удалить сообщение
+              </button>
+            )}
+            <button
+              onClick={() => setCtxMenu(null)}
+              className="w-full flex items-center gap-3 px-5 py-3.5 text-muted-foreground hover:bg-white/8 transition-colors text-sm"
+            >
+              <Icon name="X" size={16} />
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5">
         {messages.map((msg, i) => (
-          <div key={msg.id} className={`flex ${msg.out ? "justify-end" : "justify-start"} animate-fade-in`} style={{ animationDelay: `${i * 0.04}s` }}>
-            <div className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden ${
+          <div
+            key={msg.id}
+            className={`flex ${msg.out ? "justify-end" : "justify-start"} animate-fade-in`}
+            style={{ animationDelay: `${i * 0.04}s` }}
+            onMouseDown={() => startHold(msg.id, msg.out)}
+            onMouseUp={cancelHold}
+            onMouseLeave={cancelHold}
+            onTouchStart={() => startHold(msg.id, msg.out)}
+            onTouchEnd={cancelHold}
+            onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
+          >
+            <div className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none ${
               msg.out
                 ? "msg-bubble-out text-white rounded-tr-sm"
                 : "msg-bubble-in text-foreground rounded-tl-sm"
