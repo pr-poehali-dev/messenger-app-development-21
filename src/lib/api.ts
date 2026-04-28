@@ -115,23 +115,9 @@ export interface BeforeInstallPromptEvent extends Event {
 
 export const STORIES: Story[] = [
   { id: 0, name: "Моя", avatar: "Я", seen: false, gradient: "from-violet-600 to-indigo-500" },
-  { id: 1, name: "Алина", avatar: "А", seen: false, gradient: "from-pink-500 to-rose-400" },
-  { id: 2, name: "Максим", avatar: "М", seen: false, gradient: "from-cyan-500 to-blue-500" },
-  { id: 3, name: "Катя", avatar: "К", seen: true, gradient: "from-amber-400 to-orange-500" },
-  { id: 4, name: "Дима", avatar: "Д", seen: true, gradient: "from-emerald-400 to-teal-500" },
-  { id: 5, name: "Юля", avatar: "Ю", seen: true, gradient: "from-violet-400 to-purple-600" },
 ];
 
-export const CHATS: Chat[] = [
-  { id: 1, name: "Алина Соколова", avatar: "А", lastMsg: "Окей, завтра созвонимся 🎉", time: "сейчас", unread: 3, online: true, typing: true, verified: false, pinned: true },
-  { id: 2, name: "Команда дизайн", avatar: "Т", lastMsg: "Макеты готовы, проверяй", time: "14:22", unread: 7, group: true, pinned: true },
-  { id: 3, name: "Максим Кузнецов", avatar: "М", lastMsg: "Ты смотрел новый фильм?", time: "13:05", online: true },
-  { id: 4, name: "Екатерина Л.", avatar: "Е", lastMsg: "Спасибо за помощь!", time: "вчера", unread: 1 },
-  { id: 5, name: "Дмитрий Волков", avatar: "Д", lastMsg: "Встреча в 18:00, не забудь", time: "вчера" },
-  { id: 6, name: "Маркетинг 🚀", avatar: "М", lastMsg: "Новая стратегия утверждена", time: "пн", group: true },
-  { id: 7, name: "Юлия Попова", avatar: "Ю", lastMsg: "Привет! Как дела?", time: "вс", online: false },
-  { id: 8, name: "Иван Смирнов", avatar: "И", lastMsg: "Документы отправил", time: "сб" },
-];
+export const CHATS: Chat[] = [];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

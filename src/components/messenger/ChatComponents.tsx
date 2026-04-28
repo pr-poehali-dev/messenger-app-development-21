@@ -99,6 +99,15 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
 
   return (
     <div className="flex-1 overflow-y-auto py-2 space-y-0.5">
+      {chats.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center px-8">
+          <div className="w-16 h-16 glass rounded-3xl flex items-center justify-center mb-4">
+            <Icon name="MessageCircle" size={28} className="text-violet-400" />
+          </div>
+          <p className="font-semibold mb-1">Чатов пока нет</p>
+          <p className="text-sm text-muted-foreground">Найди людей через поиск или добавь контакты</p>
+        </div>
+      )}
       {pinned.length > 0 && (
         <>
           <div className="px-6 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Закреплённые</div>
@@ -207,7 +216,7 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
   return (
     <div className="flex flex-col h-full animate-fade-in relative">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 glass-strong border-b border-white/5">
+      <div className="flex items-center gap-3 px-4 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
         <button onClick={onBack} className="md:hidden p-2 rounded-xl hover:bg-white/8 transition-colors">
           <Icon name="ChevronLeft" size={20} />
         </button>

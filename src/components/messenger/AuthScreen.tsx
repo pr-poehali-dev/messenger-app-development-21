@@ -12,6 +12,7 @@ export function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
   const [existed, setExisted] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstall, setShowInstall] = useState(false);
+  const [tempUserId, setTempUserId] = useState<number | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); setShowInstall(true); };
@@ -47,11 +48,20 @@ export function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     setLoading(true);
     setErrorMsg("");
     try {
-      const data = await api("get_me", { phone: digits });
-      if (data.user) {
+      // Проверяем — есть ли пользователь с таким номером (register вернёт existed:true если уже есть)
+      const data = await api("register", { phone: digits, name: "_check_" });
+      if (data.user && data.existed) {
+        // Пользователь уже зарегистрирован — входим
         setExisted(true);
         onDone(data.user);
-      } else {
+      } else if (data.user && !data.existed) {
+        // Зарегистрировался с именем "_check_" — надо спросить имя
+        // Переходим к шагу имени, но сначала удалим временную запись через register с нормальным именем
+        setStep("name");
+        // Сохраняем временный id чтобы обновить имя
+        setTempUserId(data.user.id);
+      } else if (data.error) {
+        // Номер не найден — новый пользователь
         setStep("name");
       }
     } catch {
@@ -68,6 +78,11 @@ export function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     setErrorMsg("");
     try {
       const digits = phone.replace(/\D/g, "");
+      if (tempUserId) {
+        // Обновляем имя у уже созданного пользователя
+        const data = await api("update_profile", { name: name.trim() }, tempUserId);
+        if (data.user) { onDone(data.user); return; }
+      }
       const data = await api("register", { phone: digits, name: name.trim() });
       if (data.user) {
         onDone(data.user);
@@ -83,8 +98,8 @@ export function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     }
   };
 
-  // suppress unused warning
   void existed;
+  void tempUserId;
 
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
