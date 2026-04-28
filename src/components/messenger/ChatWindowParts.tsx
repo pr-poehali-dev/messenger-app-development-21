@@ -1,0 +1,279 @@
+import { useRef } from "react";
+import Icon from "@/components/ui/icon";
+import { type Chat, type Message, type User, type IconName } from "@/lib/api";
+import { Avatar } from "@/components/messenger/ChatAtoms";
+import { QUICK_REACTIONS } from "@/components/messenger/ChatMediaMessage";
+
+// ─── ChatHeader ───────────────────────────────────────────────────────────────
+
+export function ChatHeader({
+  chat,
+  onBack,
+  showMenu,
+  setShowMenu,
+  onCall,
+  onVideoCall,
+}: {
+  chat: Chat;
+  onBack: () => void;
+  showMenu: boolean;
+  setShowMenu: (v: boolean | ((prev: boolean) => boolean)) => void;
+  onCall?: (partnerId: number, name: string) => void;
+  onVideoCall?: (partnerId: number, name: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
+      <button onClick={onBack} className="md:hidden p-2 rounded-xl hover:bg-white/8 transition-colors">
+        <Icon name="ChevronLeft" size={20} />
+      </button>
+      <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-foreground">{chat.name}</span>
+          {chat.group && <span className="text-[10px] bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full font-medium">группа</span>}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {chat.typing ? (
+            <span className="text-violet-400">печатает сообщение...</span>
+          ) : chat.online ? (
+            <span className="text-emerald-400">в сети</span>
+          ) : (
+            "был(а) недавно"
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onCall && chat.partner_id && onCall(chat.partner_id, chat.name)}
+          className="p-2 rounded-xl hover:bg-white/8 transition-colors text-emerald-400 hover:text-emerald-300"
+        >
+          <Icon name="Phone" size={18} />
+        </button>
+        <button
+          onClick={() => onVideoCall && chat.partner_id && onVideoCall(chat.partner_id, chat.name)}
+          className="p-2 rounded-xl hover:bg-white/8 transition-colors text-sky-400 hover:text-sky-300"
+        >
+          <Icon name="Video" size={18} />
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowMenu(v => !v)}
+            className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <Icon name="MoreVertical" size={18} />
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 top-10 z-50 glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[200px] animate-scale-in" onClick={() => setShowMenu(false)}>
+              {[
+                { icon: "Search", label: "Поиск по чату" },
+                { icon: "Bell", label: "Уведомления" },
+                { icon: "Pin", label: "Закреплённые" },
+                { icon: "Star", label: "Избранные" },
+                { icon: "Trash2", label: "Очистить историю", red: true },
+                { icon: "Ban", label: "Заблокировать", red: true },
+              ].map(item => (
+                <button
+                  key={item.icon}
+                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/8 transition-colors text-sm ${item.red ? "text-red-400 hover:bg-red-500/10" : ""}`}
+                >
+                  <Icon name={item.icon as IconName} size={16} className={item.red ? "text-red-400" : "text-muted-foreground"} />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ContextMenu ──────────────────────────────────────────────────────────────
+
+export function ContextMenu({
+  ctxMenu,
+  messages,
+  onClose,
+  onReact,
+  onDelete,
+}: {
+  ctxMenu: { msgId: number; out: boolean };
+  messages: Message[];
+  onClose: () => void;
+  onReact: (msgId: number, emoji: string) => void;
+  onDelete: (msgId: number) => void;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
+      onClick={onClose}
+    >
+      <div className="glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[200px] animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="flex gap-1 px-4 py-3 border-b border-white/5">
+          {QUICK_REACTIONS.map(emoji => (
+            <button
+              key={emoji}
+              onClick={() => onReact(ctxMenu.msgId, emoji)}
+              className="text-xl hover:scale-125 transition-transform"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => {
+            const msg = messages.find(m => m.id === ctxMenu.msgId);
+            if (msg?.text) navigator.clipboard.writeText(msg.text);
+            onClose();
+          }}
+          className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-white/8 transition-colors text-sm"
+        >
+          <Icon name="Copy" size={16} className="text-muted-foreground" />
+          Копировать
+        </button>
+        {ctxMenu.out && (
+          <button
+            onClick={() => onDelete(ctxMenu.msgId)}
+            className="w-full flex items-center gap-3 px-5 py-3.5 text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium"
+          >
+            <Icon name="Trash2" size={16} />
+            Удалить сообщение
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className="w-full flex items-center gap-3 px-5 py-3.5 text-muted-foreground hover:bg-white/8 transition-colors text-sm"
+        >
+          <Icon name="X" size={16} />
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ChatInput ────────────────────────────────────────────────────────────────
+
+export function ChatInput({
+  input,
+  setInput,
+  showAttach,
+  setShowAttach,
+  uploading,
+  uploadLabel,
+  recording,
+  recordSec,
+  fileInputRef,
+  onSend,
+  onNotifyTyping,
+  onStartRecording,
+  onStopRecording,
+  onFileChange,
+}: {
+  input: string;
+  setInput: (v: string) => void;
+  showAttach: boolean;
+  setShowAttach: (v: boolean | ((prev: boolean) => boolean)) => void;
+  uploading: boolean;
+  uploadLabel: string;
+  recording: boolean;
+  recordSec: number;
+  fileInputRef: React.RefObject<HTMLInputElement>;
+  onSend: () => void;
+  onNotifyTyping: () => void;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
+  onFileChange: (file: File) => void;
+}) {
+  return (
+    <div className="px-4 py-3 glass-strong border-t border-white/5" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(f); e.target.value = ""; }}
+      />
+      {showAttach && (
+        <div className="grid grid-cols-4 gap-2 mb-3 animate-fade-in">
+          {[
+            { icon: "Image", label: "Фото", color: "text-violet-400", mime: "image/*" },
+            { icon: "Video", label: "Видео", color: "text-sky-400", mime: "video/*" },
+            { icon: "Music", label: "Аудио", color: "text-pink-400", mime: "audio/*" },
+            { icon: "FileText", label: "Файл", color: "text-emerald-400", mime: "*" },
+          ].map(item => (
+            <button
+              key={item.icon}
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = item.mime;
+                  fileInputRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name={item.icon as IconName} size={20} className={item.color} />
+              <span className="text-[10px] text-muted-foreground">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {uploading && (
+        <div className="flex items-center gap-2 mb-2 px-1 animate-fade-in">
+          <div className="w-4 h-4 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          <span className="text-xs text-muted-foreground">{uploadLabel}</span>
+        </div>
+      )}
+      {recording && (
+        <div className="flex items-center gap-3 mb-2 px-2 animate-fade-in">
+          <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+          <span className="text-sm text-red-400 font-medium">
+            Запись {Math.floor(recordSec / 60).toString().padStart(2, "0")}:{(recordSec % 60).toString().padStart(2, "0")}
+          </span>
+          <button onClick={onStopRecording} className="ml-auto text-xs text-muted-foreground hover:text-red-400">
+            Отмена
+          </button>
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <button
+          onClick={() => setShowAttach(v => !v)}
+          className={`p-2.5 rounded-xl transition-all ${showAttach ? "bg-violet-500/20 text-violet-400" : "hover:bg-white/8 text-muted-foreground hover:text-foreground"}`}
+        >
+          <Icon name={showAttach ? "X" : "Paperclip"} size={20} />
+        </button>
+        <div className="flex-1 flex items-end glass rounded-2xl px-4 py-2.5 gap-2">
+          <textarea
+            value={input}
+            onChange={e => { setInput(e.target.value); onNotifyTyping(); }}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
+            placeholder="Сообщение..."
+            rows={1}
+            className="flex-1 bg-transparent outline-none text-sm text-foreground placeholder-muted-foreground resize-none max-h-32"
+          />
+          <button className="text-muted-foreground hover:text-foreground transition-colors">
+            <Icon name="Smile" size={20} />
+          </button>
+        </div>
+        {input.trim() ? (
+          <button
+            onClick={onSend}
+            className="p-2.5 rounded-xl transition-all grad-primary text-white glow-primary animate-scale-in"
+          >
+            <Icon name="Send" size={20} />
+          </button>
+        ) : (
+          <button
+            onMouseDown={onStartRecording}
+            onMouseUp={onStopRecording}
+            onTouchStart={onStartRecording}
+            onTouchEnd={onStopRecording}
+            className={`p-2.5 rounded-xl transition-all ${recording ? "bg-red-500 text-white" : "glass text-muted-foreground hover:text-violet-400"}`}
+          >
+            <Icon name="Mic" size={20} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
