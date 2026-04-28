@@ -4,6 +4,9 @@ import { api, pushApi, urlBase64ToUint8Array, type View, type Tab, type Chat, ty
 import { StoriesBar, ChatList, ChatWindow, Avatar } from "@/components/messenger/ChatComponents";
 import { StoryViewer, SearchPanel, ProfilePanel, SettingsPanel } from "@/components/messenger/Panels";
 import { AuthScreen } from "@/components/messenger/AuthScreen";
+import { ContactsPanel } from "@/components/messenger/ContactsPanel";
+import { CallScreen } from "@/components/messenger/CallScreen";
+import { type Contact } from "@/lib/api";
 
 export default function Index() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -31,6 +34,7 @@ export default function Index() {
   const [realChats, setRealChats] = useState<Chat[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCall, setActiveCall] = useState<{ userId: number; name: string; callId: string; incoming: boolean } | null>(null);
 
   // Push-подписка
   useEffect(() => {
@@ -130,6 +134,26 @@ export default function Index() {
     }
   };
 
+  const startCall = (contact: Contact) => {
+    const callId = `${currentUser!.id}_${contact.id}_${Date.now()}`;
+    setActiveCall({ userId: contact.id, name: contact.name, callId, incoming: false });
+  };
+
+  // Polling входящих звонков
+  useEffect(() => {
+    if (!currentUser) return;
+    const since = { val: Math.floor(Date.now() / 1000) - 5 };
+    const interval = setInterval(async () => {
+      if (activeCall) return;
+      const data = await api("poll_incoming_call", { since: since.val }, currentUser.id);
+      if (data.call) {
+        since.val = data.call.created_at;
+        setActiveCall({ userId: data.call.from_user_id, name: data.call.from_name, callId: data.call.call_id, incoming: true });
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [currentUser, activeCall]);
+
   const login = (user: User) => {
     localStorage.setItem("nova_user", JSON.stringify(user));
     setCurrentUser(user);
@@ -156,7 +180,7 @@ export default function Index() {
 
   const navItems: { tab: View; icon: string; label: string }[] = [
     { tab: "chats", icon: "MessageCircle", label: "Чаты" },
-    { tab: "stories", icon: "Circle", label: "Истории" },
+    { tab: "contacts", icon: "BookUser", label: "Контакты" },
     { tab: "search", icon: "Search", label: "Поиск" },
     { tab: "profile", icon: "User", label: "Профиль" },
     { tab: "settings", icon: "Shield", label: "Безопасность" },
@@ -176,6 +200,18 @@ export default function Index() {
     <div className="h-screen flex overflow-hidden relative">
       {/* Mesh background */}
       <div className="mesh-bg" />
+
+      {/* Call screen */}
+      {activeCall && (
+        <CallScreen
+          currentUser={currentUser}
+          remoteUserId={activeCall.userId}
+          remoteName={activeCall.name}
+          callId={activeCall.callId}
+          isIncoming={activeCall.incoming}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
 
       {/* Story Viewer */}
       {viewingStory && <StoryViewer story={viewingStory} onClose={() => setViewingStory(null)} />}
@@ -316,9 +352,19 @@ export default function Index() {
         ${showSidebar && !selectedChat ? "translate-x-full md:translate-x-0" : "translate-x-0"}
       `}>
         {selectedChat ? (
-          <ChatWindow chat={selectedChat} onBack={handleBack} currentUser={currentUser} />
+          <ChatWindow
+            chat={selectedChat}
+            onBack={handleBack}
+            currentUser={currentUser}
+            onCall={(partnerId, name) => {
+              const callId = `${currentUser.id}_${partnerId}_${Date.now()}`;
+              setActiveCall({ userId: partnerId, name, callId, incoming: false });
+            }}
+          />
         ) : view === "search" ? (
           <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} />
+        ) : view === "contacts" ? (
+          <ContactsPanel currentUser={currentUser} onStartChat={(chat) => { setSelectedChat(chat); setShowSidebar(false); }} onCall={startCall} />
         ) : view === "profile" ? (
           <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} />
         ) : view === "settings" ? (

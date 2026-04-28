@@ -50,7 +50,16 @@ export function urlBase64ToUint8Array(base64String: string) {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type View = "chats" | "stories" | "search" | "profile" | "settings";
+export type View = "chats" | "stories" | "search" | "profile" | "settings" | "contacts";
+
+export interface Contact {
+  id: number;
+  name: string;
+  real_name: string;
+  phone: string;
+  avatar_url?: string;
+  last_seen?: number;
+}
 export type Tab = "chats" | "stories" | "contacts";
 export type IconName = string;
 

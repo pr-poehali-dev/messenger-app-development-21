@@ -113,7 +113,7 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
 
 // ─── ChatWindow ───────────────────────────────────────────────────────────────
 
-export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: () => void; currentUser: User }) {
+export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; onBack: () => void; currentUser: User; onCall?: (partnerId: number, name: string) => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [showAttach, setShowAttach] = useState(false);
@@ -228,11 +228,11 @@ export function ChatWindow({ chat, onBack, currentUser }: { chat: Chat; onBack: 
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
+          <button
+            onClick={() => onCall && chat.partner_id && onCall(chat.partner_id, chat.name)}
+            className="p-2 rounded-xl hover:bg-white/8 transition-colors text-emerald-400 hover:text-emerald-300"
+          >
             <Icon name="Phone" size={18} />
-          </button>
-          <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
-            <Icon name="Video" size={18} />
           </button>
           <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
             <Icon name="MoreVertical" size={18} />

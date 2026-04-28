@@ -310,5 +310,135 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True})
 
+    # ── get_contacts ──────────────────────────────────────────────────────────
+    if action == "get_contacts":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT u.id, u.name, u.phone, u.avatar_url, u.last_seen, c.name_override
+                FROM {SCHEMA}.contacts c
+                JOIN {SCHEMA}.users u ON u.id = c.contact_id
+                WHERE c.user_id = %s
+                ORDER BY COALESCE(c.name_override, u.name) ASC""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        contacts = [{"id": r[0], "name": r[4+1] or r[1], "real_name": r[1], "phone": r[2], "avatar_url": r[3], "last_seen": r[4]} for r in rows]
+        return ok({"contacts": contacts})
+
+    # ── add_contact ───────────────────────────────────────────────────────────
+    if action == "add_contact":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        phone = (body.get("phone") or "").strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        if phone.startswith("8"):
+            phone = "7" + phone[1:]
+        if phone.startswith("+"):
+            phone = phone[1:]
+        name_override = (body.get("name") or "").strip() or None
+        if not phone:
+            conn.close()
+            return err("Укажите phone")
+        cur.execute(f"SELECT id, name FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        found = cur.fetchone()
+        if not found:
+            conn.close()
+            return err("Пользователь с таким номером не найден")
+        if found[0] == int(user_id):
+            conn.close()
+            return err("Нельзя добавить себя")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.contacts (user_id, contact_id, name_override, created_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, contact_id) DO UPDATE SET name_override = EXCLUDED.name_override
+                RETURNING id""",
+            (int(user_id), found[0], name_override, now)
+        )
+        conn.close()
+        return ok({"ok": True, "contact": {"id": found[0], "name": name_override or found[1], "phone": phone}})
+
+    # ── remove_contact ────────────────────────────────────────────────────────
+    if action == "remove_contact":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        contact_id = body.get("contact_id")
+        if not contact_id:
+            conn.close()
+            return err("Укажите contact_id")
+        cur.execute(
+            f"DELETE FROM {SCHEMA}.contacts WHERE user_id = %s AND contact_id = %s",
+            (int(user_id), int(contact_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── call_signal ───────────────────────────────────────────────────────────
+    if action == "call_signal":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        call_id = (body.get("call_id") or "").strip()
+        to_user_id = body.get("to_user_id")
+        signal_type = (body.get("type") or "").strip()
+        payload = body.get("payload")
+        if not call_id or not to_user_id or not signal_type:
+            conn.close()
+            return err("Укажите call_id, to_user_id, type")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.call_signals (call_id, from_user_id, to_user_id, type, payload, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)""",
+            (call_id, int(user_id), int(to_user_id), signal_type, json.dumps(payload) if payload else None, now)
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── get_call_signals ──────────────────────────────────────────────────────
+    if action == "get_call_signals":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        call_id = (body.get("call_id") or params.get("call_id") or "").strip()
+        since = int(body.get("since") or params.get("since") or 0)
+        if not call_id:
+            conn.close()
+            return err("Укажите call_id")
+        cur.execute(
+            f"""SELECT id, from_user_id, type, payload, created_at
+                FROM {SCHEMA}.call_signals
+                WHERE call_id = %s AND to_user_id = %s AND created_at > %s
+                ORDER BY id ASC LIMIT 20""",
+            (call_id, int(user_id), since)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        signals = [{"id": r[0], "from_user_id": r[1], "type": r[2], "payload": json.loads(r[3]) if r[3] else None, "created_at": r[4]} for r in rows]
+        return ok({"signals": signals})
+
+    # ── poll_incoming_call ────────────────────────────────────────────────────
+    if action == "poll_incoming_call":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        since = int(body.get("since") or params.get("since") or (int(time.time()) - 30))
+        cur.execute(
+            f"""SELECT cs.call_id, cs.from_user_id, u.name, cs.created_at
+                FROM {SCHEMA}.call_signals cs
+                JOIN {SCHEMA}.users u ON u.id = cs.from_user_id
+                WHERE cs.to_user_id = %s AND cs.type = 'offer' AND cs.created_at > %s
+                ORDER BY cs.created_at DESC LIMIT 1""",
+            (int(user_id), since)
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return ok({"call": {"call_id": row[0], "from_user_id": row[1], "from_name": row[2], "created_at": row[3]}})
+        return ok({"call": None})
+
     conn.close()
     return err("Неизвестный action")
