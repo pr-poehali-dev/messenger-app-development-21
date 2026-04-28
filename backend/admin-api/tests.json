@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Reject without auth",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "stats"},
+      "expectedStatus": 403,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { StoryViewer, SearchPanel, ProfilePanel, SettingsPanel } from "@/compone
 import { AuthScreen } from "@/components/messenger/AuthScreen";
 import { ContactsPanel } from "@/components/messenger/ContactsPanel";
 import { CallScreen } from "@/components/messenger/CallScreen";
+import { AdminPanel } from "@/components/messenger/AdminPanel";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -35,6 +36,7 @@ export default function Index() {
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCall, setActiveCall] = useState<{ userId: number; name: string; callId: string; incoming: boolean } | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   // Push-подписка
   useEffect(() => {
@@ -201,6 +203,9 @@ export default function Index() {
       {/* Mesh background */}
       <div className="mesh-bg" />
 
+      {/* Admin Panel */}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+
       {/* Call screen */}
       {activeCall && (
         <CallScreen
@@ -235,11 +240,22 @@ export default function Index() {
             <span className="text-lg font-bold grad-text">Nova</span>
           </div>
           <div className="flex items-center gap-1">
-            <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
-              <Icon name="PenSquare" size={18} />
+            {/* Nova Pro badge */}
+            <button
+              onClick={() => setView("settings")}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
+              style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", color: "#fff" }}
+            >
+              <Icon name="Crown" size={12} />
+              Pro
             </button>
-            <button className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
-              <Icon name="MoreHorizontal" size={18} />
+            {/* Dev Panel */}
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-violet-400"
+              title="Dev Panel"
+            >
+              <Icon name="Terminal" size={18} />
             </button>
           </div>
         </div>

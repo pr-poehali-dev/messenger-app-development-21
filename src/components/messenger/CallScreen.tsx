@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { api, avatarGrad, type User } from "@/lib/api";
+import { startRingtone, stopRingtone, startDialTone, stopDialTone, playHangupSound } from "@/lib/sounds";
 
 type CallState = "calling" | "ringing" | "connected" | "ended";
 
@@ -37,6 +38,8 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     pcRef.current?.close();
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    stopRingtone();
+    stopDialTone();
   };
 
   const sendSignal = async (type: string, payload?: unknown) => {
@@ -44,6 +47,8 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
   };
 
   const startTimer = () => {
+    stopRingtone();
+    stopDialTone();
     timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
   };
 
@@ -111,6 +116,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
         } else if (sig.type === "candidate") {
           try { await pc.addIceCandidate(new RTCIceCandidate(sig.payload)); } catch { /* ignore */ }
         } else if (sig.type === "hangup") {
+          playHangupSound();
           setState("ended");
           setTimeout(() => { cleanup(); onClose(); }, 1500);
         }
@@ -119,17 +125,24 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
   };
 
   useEffect(() => {
-    if (!isIncoming) startCall();
+    if (isIncoming) {
+      startRingtone();
+    } else {
+      startDialTone();
+      startCall();
+    }
     return cleanup;
   }, []);
 
   const hangup = async () => {
+    playHangupSound();
     await sendSignal("hangup");
     setState("ended");
     setTimeout(() => { cleanup(); onClose(); }, 800);
   };
 
   const reject = () => {
+    playHangupSound();
     sendSignal("hangup");
     cleanup();
     onClose();

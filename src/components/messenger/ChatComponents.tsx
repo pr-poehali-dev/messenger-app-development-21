@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import { api, uploadImage, avatarGrad, type Chat, type Message, type Story, type User, type IconName, STORIES } from "@/lib/api";
+import { playMessageSound } from "@/lib/sounds";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,9 @@ export function ChatWindow({ chat, onBack, currentUser, onCall }: { chat: Chat; 
       if (since === 0) {
         setMessages(mapped);
       } else {
+        // Звук только для входящих новых сообщений
+        const hasIncoming = mapped.some(m => !m.out);
+        if (hasIncoming) playMessageSound();
         setMessages(prev => [...prev, ...mapped]);
       }
       const maxTs = Math.max(...data.messages.map((m: { created_at: number }) => m.created_at));
