@@ -75,8 +75,12 @@ def handler(event: dict, context) -> dict:
                 conn.close()
                 return {"statusCode": 502, "headers": headers, "body": json.dumps({"error": f"Ошибка SMS: {result.get('error_code')}"})}
 
+        is_demo = not bool(login)
         conn.close()
-        return {"statusCode": 200, "headers": headers, "body": json.dumps({"ok": True, "demo": not bool(login)})}
+        result = {"ok": True, "demo": is_demo}
+        if is_demo:
+            result["code"] = code
+        return {"statusCode": 200, "headers": headers, "body": json.dumps(result)}
 
     if action == "verify":
         phone = (body.get("phone") or "").strip()

@@ -689,6 +689,7 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
   const [shake, setShake] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [resendTimer, setResendTimer] = useState(0);
+  const [demoCode, setDemoCode] = useState("");
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstall, setShowInstall] = useState(false);
   const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -745,6 +746,7 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
       });
       const data = await res.json();
       if (!res.ok) { setErrorMsg(data.error || "Ошибка отправки"); triggerShake(); return; }
+      if (data.demo) setDemoCode(data.code || "");
       setStep("code");
       startResendTimer();
     } catch {
@@ -935,6 +937,12 @@ function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
               </button>
               <h2 className="text-xl font-bold mb-1">Код из SMS</h2>
               <p className="text-sm text-muted-foreground">Отправили на <span className="text-foreground font-medium">{phone}</span></p>
+              {demoCode && (
+                <div className="mt-2 px-3 py-2 rounded-xl bg-violet-500/15 border border-violet-500/30 flex items-center gap-2">
+                  <Icon name="Info" size={14} className="text-violet-400 flex-shrink-0" />
+                  <p className="text-xs text-violet-300">SMS не настроен — ваш код: <span className="font-bold text-white tracking-widest">{demoCode}</span></p>
+                </div>
+              )}
             </div>
             <div className={`flex gap-2 justify-between ${shake ? "animate-[shake_0.4s_ease]" : ""}`}>
               {code.map((digit, i) => (
