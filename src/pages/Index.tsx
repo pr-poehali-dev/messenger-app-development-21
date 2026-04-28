@@ -294,7 +294,7 @@ export default function Index() {
         </div>
 
         {/* Bottom nav */}
-        <div className="flex items-center justify-around px-4 py-3 border-t border-white/5">
+        <div className="flex items-center justify-around px-4 pt-3 border-t border-white/5" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
           {navItems.map(item => {
             const totalUnread = item.tab === "chats" ? realChats.reduce((s, c) => s + (c.unread || 0), 0) : 0;
             return (

@@ -81,8 +81,7 @@
 
   #root {
     height: 100dvh;
-    /* Safe area — только боковые и снизу. Top обрабатывается внутри компонентов */
-    padding-bottom: env(safe-area-inset-bottom);
+    /* Safe area боковые — top и bottom обрабатываются внутри компонентов */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }

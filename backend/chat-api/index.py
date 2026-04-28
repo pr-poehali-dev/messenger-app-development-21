@@ -395,7 +395,28 @@ def handler(event: dict, context) -> dict:
                 VALUES (%s, %s, %s, %s, %s, %s)""",
             (call_id, int(user_id), int(to_user_id), signal_type, json.dumps(payload) if payload else None, now)
         )
-        conn.close()
+        # Если это offer (начало звонка) — отправляем push уведомление
+        if signal_type == "offer":
+            cur.execute(f"SELECT name FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
+            caller = cur.fetchone()
+            conn.close()
+            push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+            if push_url and caller:
+                try:
+                    push_body = json.dumps({
+                        "action": "send",
+                        "recipient_id": int(to_user_id),
+                        "sender_name": caller[0],
+                        "is_call": True,
+                        "call_id": call_id,
+                        "message": "Входящий звонок",
+                    }).encode("utf-8")
+                    req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception:
+                    pass
+        else:
+            conn.close()
         return ok({"ok": True})
 
     # ── get_call_signals ──────────────────────────────────────────────────────

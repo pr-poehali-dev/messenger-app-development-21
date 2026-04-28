@@ -99,12 +99,18 @@ def handler(event: dict, context) -> dict:
         if not vapid_private or not vapid_public:
             return err("VAPID ключи не настроены", 500)
 
+        is_call = body.get("is_call", False)
+        call_id = body.get("call_id")
         payload = json.dumps({
-            "title": sender_name or title,
-            "body": message,
+            "title": f"📞 {sender_name}" if is_call else (sender_name or title),
+            "body": "Входящий звонок" if is_call else message,
             "chat_id": chat_id,
+            "call_id": call_id,
+            "is_call": is_call,
             "icon": "/icons/icon-192.png",
             "badge": "/icons/icon-192.png",
+            "tag": f"call_{call_id}" if is_call else f"msg_{chat_id}",
+            "requireInteraction": is_call,
         })
 
         sent = 0
