@@ -287,6 +287,16 @@
   animation: typing-dot 1.4s ease-in-out 0.4s infinite;
 }
 
+@keyframes voice-bar {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+  }
+  50% {
+    transform: scaleY(1.4);
+  }
+}
+
 .stagger-1 {
   animation-delay: 0.05s;
 }

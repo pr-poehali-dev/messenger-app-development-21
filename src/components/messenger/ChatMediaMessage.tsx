@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { type Message, type Reaction } from "@/lib/api";
 import { MediaViewer, type MediaItem } from "@/components/messenger/MediaViewer";
+import { VoiceMessage } from "@/components/messenger/VoiceMessage";
 
 // ─── QUICK_REACTIONS ──────────────────────────────────────────────────────────
 
@@ -9,11 +10,7 @@ export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"
 
 // ─── MediaMessage ─────────────────────────────────────────────────────────────
 
-export function MediaMessage({ msg, gallery = [], galleryIndex = 0 }: { msg: Message; gallery?: MediaItem[]; galleryIndex?: number }) {
-  const [playing, setPlaying] = useState(false);
-  const [curTime, setCurTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const audioRef = useRef<HTMLAudioElement>(null);
+export function MediaMessage({ msg, gallery = [], galleryIndex = 0, out = false }: { msg: Message; gallery?: MediaItem[]; galleryIndex?: number; out?: boolean }) {
   const [imgError, setImgError] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
 
@@ -27,13 +24,6 @@ export function MediaMessage({ msg, gallery = [], galleryIndex = 0 }: { msg: Mes
     if (bytes < 1024) return `${bytes} Б`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
     return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
-  };
-
-  const formatTime = (sec: number) => {
-    if (!isFinite(sec) || sec < 0) sec = 0;
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
   if (mediaType === "image") {
@@ -108,56 +98,7 @@ export function MediaMessage({ msg, gallery = [], galleryIndex = 0 }: { msg: Mes
   }
 
   if (mediaType === "audio") {
-    const togglePlay = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      const a = audioRef.current;
-      if (!a) return;
-      if (playing) { a.pause(); setPlaying(false); }
-      else {
-        a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-      }
-    };
-    const progress = duration > 0 ? (curTime / duration) * 100 : 0;
-    return (
-      <div
-        className="flex items-center gap-3 px-1 py-1 min-w-[220px]"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={togglePlay}
-          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-          style={{ background: "rgba(139,92,246,0.25)" }}
-        >
-          <Icon name={playing ? "Pause" : "Play"} size={18} className="text-violet-400" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-medium">Голосовое</div>
-            <div className="text-[10px] text-muted-foreground tabular-nums">
-              {formatTime(playing || curTime > 0 ? curTime : duration)}
-            </div>
-          </div>
-          <div className="w-full h-1 bg-white/20 rounded-full mt-1">
-            <div className="h-full bg-violet-400 rounded-full" style={{ width: `${progress}%`, transition: "width 0.1s" }} />
-          </div>
-        </div>
-        <audio
-          ref={audioRef}
-          src={mediaUrl}
-          preload="metadata"
-          onLoadedMetadata={(e) => {
-            const d = e.currentTarget.duration;
-            if (isFinite(d)) setDuration(d);
-          }}
-          onTimeUpdate={(e) => setCurTime(e.currentTarget.currentTime)}
-          onEnded={() => { setPlaying(false); setCurTime(0); }}
-          onPause={() => setPlaying(false)}
-          onPlay={() => setPlaying(true)}
-        />
-      </div>
-    );
+    return <VoiceMessage url={mediaUrl} out={out} />;
   }
 
   if (mediaType === "file") {

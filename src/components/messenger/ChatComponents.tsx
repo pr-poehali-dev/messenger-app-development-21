@@ -286,7 +286,7 @@ export function ChatWindow({
                 >
                   {(msg.media_url || msg.image_url) && (
                     <div className="p-1.5">
-                      <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} />
+                      <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} out={msg.out} />
                     </div>
                   )}
                   {msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎") && (
