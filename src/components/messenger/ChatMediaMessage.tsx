@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { type Message, type Reaction } from "@/lib/api";
-import { MediaViewer } from "@/components/messenger/MediaViewer";
+import { MediaViewer, type MediaItem } from "@/components/messenger/MediaViewer";
 
 // ─── QUICK_REACTIONS ──────────────────────────────────────────────────────────
 
@@ -9,7 +9,7 @@ export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"
 
 // ─── MediaMessage ─────────────────────────────────────────────────────────────
 
-export function MediaMessage({ msg }: { msg: Message }) {
+export function MediaMessage({ msg, gallery = [], galleryIndex = 0 }: { msg: Message; gallery?: MediaItem[]; galleryIndex?: number }) {
   const [playing, setPlaying] = useState(false);
   const [curTime, setCurTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -63,7 +63,11 @@ export function MediaMessage({ msg }: { msg: Message }) {
           onTouchStart={(e) => e.stopPropagation()}
         />
         {viewerOpen && (
-          <MediaViewer url={mediaUrl} type="image" onClose={() => setViewerOpen(false)} />
+          <MediaViewer
+            items={gallery.length > 0 ? gallery : [{ url: mediaUrl, type: "image" }]}
+            startIndex={gallery.length > 0 ? galleryIndex : 0}
+            onClose={() => setViewerOpen(false)}
+          />
         )}
       </>
     );
@@ -93,7 +97,11 @@ export function MediaMessage({ msg }: { msg: Message }) {
           </div>
         </div>
         {viewerOpen && (
-          <MediaViewer url={mediaUrl} type="video" onClose={() => setViewerOpen(false)} />
+          <MediaViewer
+            items={gallery.length > 0 ? gallery : [{ url: mediaUrl, type: "video" }]}
+            startIndex={gallery.length > 0 ? galleryIndex : 0}
+            onClose={() => setViewerOpen(false)}
+          />
         )}
       </>
     );

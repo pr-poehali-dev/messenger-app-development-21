@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { api, uploadMedia, type Chat, type Message, type Reaction, type User } from "@/lib/api";
 import { playMessageSound } from "@/lib/sounds";
 import { MediaMessage, ReactionBar } from "@/components/messenger/ChatMediaMessage";
+import { type MediaItem } from "@/components/messenger/MediaViewer";
 import { ChatHeader, ContextMenu, ChatInput } from "@/components/messenger/ChatWindowParts";
 import { TypingIndicator } from "@/components/messenger/ChatAtoms";
 
@@ -253,49 +254,62 @@ export function ChatWindow({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5" onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}>
-        {messages.map((msg, i) => (
-          <div
-            key={msg.id}
-            className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in`}
-            style={{ animationDelay: `${i * 0.04}s` }}
-          >
-            <div
-              className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none ${
-                msg.out
-                  ? "msg-bubble-out text-white rounded-tr-sm"
-                  : "msg-bubble-in text-foreground rounded-tl-sm"
-              }`}
-              onMouseDown={() => startHold(msg.id, msg.out)}
-              onMouseUp={cancelHold}
-              onMouseLeave={cancelHold}
-              onTouchStart={() => startHold(msg.id, msg.out)}
-              onTouchEnd={cancelHold}
-              onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
-            >
-              {(msg.media_url || msg.image_url) && (
-                <div className="p-1.5">
-                  <MediaMessage msg={msg} />
+        {(() => {
+          const mediaGallery: MediaItem[] = messages
+            .filter(m => (m.media_type === "image" || m.media_type === "video") && (m.media_url || m.image_url))
+            .map(m => ({ url: (m.media_url || m.image_url)!, type: m.media_type === "video" ? "video" as const : "image" as const }));
+
+          return messages.map((msg, i) => {
+            const isMedia = (msg.media_type === "image" || msg.media_type === "video") && (msg.media_url || msg.image_url);
+            const galleryIndex = isMedia
+              ? mediaGallery.findIndex(g => g.url === (msg.media_url || msg.image_url))
+              : 0;
+
+            return (
+              <div
+                key={msg.id}
+                className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in`}
+                style={{ animationDelay: `${i * 0.04}s` }}
+              >
+                <div
+                  className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none ${
+                    msg.out
+                      ? "msg-bubble-out text-white rounded-tr-sm"
+                      : "msg-bubble-in text-foreground rounded-tl-sm"
+                  }`}
+                  onMouseDown={() => startHold(msg.id, msg.out)}
+                  onMouseUp={cancelHold}
+                  onMouseLeave={cancelHold}
+                  onTouchStart={() => startHold(msg.id, msg.out)}
+                  onTouchEnd={cancelHold}
+                  onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
+                >
+                  {(msg.media_url || msg.image_url) && (
+                    <div className="p-1.5">
+                      <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} />
+                    </div>
+                  )}
+                  {msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎") && (
+                    <p className="px-4 py-2.5">{msg.text}</p>
+                  )}
+                  <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
+                    <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
+                    {msg.out && (
+                      <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
+                    )}
+                  </div>
                 </div>
-              )}
-              {msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎") && (
-                <p className="px-4 py-2.5">{msg.text}</p>
-              )}
-              <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
-                <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
-                {msg.out && (
-                  <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
+                {(msg.reactions || []).filter(r => r.emoji !== "__removed__").length > 0 && (
+                  <ReactionBar
+                    reactions={msg.reactions || []}
+                    currentUserId={currentUser.id}
+                    onReact={(emoji) => addReaction(msg.id, emoji)}
+                  />
                 )}
               </div>
-            </div>
-            {(msg.reactions || []).filter(r => r.emoji !== "__removed__").length > 0 && (
-              <ReactionBar
-                reactions={msg.reactions || []}
-                currentUserId={currentUser.id}
-                onReact={(emoji) => addReaction(msg.id, emoji)}
-              />
-            )}
-          </div>
-        ))}
+            );
+          });
+        })()}
         {isTyping && (
           <div className="flex justify-start animate-fade-in">
             <div className="flex items-center gap-2 msg-bubble-in rounded-2xl rounded-tl-sm px-3 py-2">
