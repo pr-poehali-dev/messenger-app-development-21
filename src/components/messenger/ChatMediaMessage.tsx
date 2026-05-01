@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { type Message, type Reaction } from "@/lib/api";
+import { MediaViewer } from "@/components/messenger/MediaViewer";
 
 // ─── QUICK_REACTIONS ──────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export function MediaMessage({ msg }: { msg: Message }) {
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [imgError, setImgError] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const mediaUrl = msg.media_url || msg.image_url;
   const mediaType = msg.media_type || (msg.image_url ? "image" : null);
@@ -50,32 +52,50 @@ export function MediaMessage({ msg }: { msg: Message }) {
       </a>
     );
     return (
-      <img
-        src={mediaUrl}
-        alt="фото"
-        className="w-full max-w-[260px] rounded-xl object-cover cursor-pointer"
-        onError={() => setImgError(true)}
-        onClick={(e) => { e.stopPropagation(); window.open(mediaUrl, "_blank"); }}
-        onMouseDown={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
-      />
+      <>
+        <img
+          src={mediaUrl}
+          alt="фото"
+          className="w-full max-w-[260px] rounded-xl object-cover cursor-pointer"
+          onError={() => setImgError(true)}
+          onClick={(e) => { e.stopPropagation(); setViewerOpen(true); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
+        {viewerOpen && (
+          <MediaViewer url={mediaUrl} type="image" onClose={() => setViewerOpen(false)} />
+        )}
+      </>
     );
   }
 
   if (mediaType === "video") {
     return (
-      <div className="w-full max-w-[260px] rounded-xl overflow-hidden">
-        <video
-          src={mediaUrl}
-          controls
-          className="w-full rounded-xl"
-          style={{ maxHeight: 300 }}
-          playsInline
-          onClick={(e) => e.stopPropagation()}
+      <>
+        <div
+          className="w-full max-w-[260px] rounded-xl overflow-hidden relative cursor-pointer group"
+          onClick={(e) => { e.stopPropagation(); setViewerOpen(true); }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
-        />
-      </div>
+        >
+          <video
+            src={mediaUrl}
+            className="w-full rounded-xl pointer-events-none"
+            style={{ maxHeight: 300 }}
+            playsInline
+            preload="metadata"
+            muted
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+            <div className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+              <Icon name="Play" size={24} className="text-white ml-0.5" />
+            </div>
+          </div>
+        </div>
+        {viewerOpen && (
+          <MediaViewer url={mediaUrl} type="video" onClose={() => setViewerOpen(false)} />
+        )}
+      </>
     );
   }
 
