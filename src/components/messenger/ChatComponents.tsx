@@ -6,6 +6,9 @@ import { MediaMessage, ReactionBar } from "@/components/messenger/ChatMediaMessa
 import { type MediaItem } from "@/components/messenger/MediaViewer";
 import { ChatHeader, ContextMenu, ChatInput } from "@/components/messenger/ChatWindowParts";
 import { TypingIndicator } from "@/components/messenger/ChatAtoms";
+import { SwipeableMessage } from "@/components/messenger/SwipeableMessage";
+import { formatDateLabel, dayKey } from "@/components/messenger/dateGroup";
+import { LinkifiedText, extractFirstUrl, getDomain } from "@/components/messenger/LinkifiedText";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -35,6 +38,9 @@ export function ChatWindow({
   const [forwardMsgId, setForwardMsgId] = useState<number | null>(null);
   const [pinnedMsg, setPinnedMsg] = useState<{ id: number; sender_name: string; text: string; media_type?: string } | null>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [lastSince, setLastSince] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -125,8 +131,34 @@ export function ChatWindow({
   }, [chat.id, currentUser.id]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // если близко к низу — авто-скроллим
+    if (distanceFromBottom < 120) {
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+      setNewCount(0);
+    } else {
+      // считаем непрочитанные «новые входящие»
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && !lastMsg.out) {
+        setNewCount((n) => n + 1);
+      }
+    }
   }, [messages, isTyping]);
+
+  const handleMessagesScroll = () => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollDown(distanceFromBottom > 200);
+    if (distanceFromBottom < 50) setNewCount(0);
+  };
+
+  const scrollToBottom = () => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    setNewCount(0);
+  };
 
   const notifyTyping = () => {
     api("set_typing", { chat_id: chat.id }, currentUser.id);
@@ -456,87 +488,132 @@ export function ChatWindow({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5" onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}>
+      <div
+        ref={messagesScrollRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5 relative"
+        onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}
+      >
         {(() => {
           const mediaGallery: MediaItem[] = messages
             .filter(m => (m.media_type === "image" || m.media_type === "video") && (m.media_url || m.image_url))
             .map(m => ({ url: (m.media_url || m.image_url)!, type: m.media_type === "video" ? "video" as const : "image" as const }));
 
-          return filteredMessages.map((msg, i) => {
+          let prevDayKey = "";
+          const nodes: JSX.Element[] = [];
+
+          filteredMessages.forEach((msg, i) => {
             const isMedia = (msg.media_type === "image" || msg.media_type === "video") && (msg.media_url || msg.image_url);
             const galleryIndex = isMedia
               ? mediaGallery.findIndex(g => g.url === (msg.media_url || msg.image_url))
               : 0;
 
-            return (
-              <div
-                key={msg.id}
-                id={`msg-${msg.id}`}
-                className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in transition-all ${highlightId === msg.id ? "scale-[1.02]" : ""}`}
-                style={{ animationDelay: `${i * 0.04}s` }}
-              >
-                <div
-                  className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
-                    msg.out
-                      ? "msg-bubble-out text-white rounded-tr-sm"
-                      : "msg-bubble-in text-foreground rounded-tl-sm"
-                  } ${highlightId === msg.id ? "ring-2 ring-violet-400" : ""}`}
-                  onMouseDown={() => startHold(msg.id, msg.out)}
-                  onMouseUp={cancelHold}
-                  onMouseLeave={cancelHold}
-                  onTouchStart={() => startHold(msg.id, msg.out)}
-                  onTouchEnd={cancelHold}
-                  onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
-                >
-                  {/* Forwarded label */}
-                  {msg.forwarded_from_name && (
-                    <div className={`px-4 pt-2 pb-0.5 text-[11px] font-medium ${msg.out ? "text-white/80" : "text-violet-400"} flex items-center gap-1`}>
-                      <Icon name="Forward" size={11} />
-                      Переслано от {msg.forwarded_from_name}
-                    </div>
-                  )}
-                  {/* Reply preview */}
-                  {msg.reply_to && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); scrollToMessage(msg.reply_to!.id); }}
-                      className={`block w-full text-left mx-1 mt-1 px-3 py-1.5 rounded-lg border-l-2 ${msg.out ? "bg-white/15 border-white" : "bg-violet-500/15 border-violet-400"}`}
-                    >
-                      <div className={`text-[11px] font-medium ${msg.out ? "text-white" : "text-violet-400"}`}>
-                        {msg.reply_to.sender_name}
-                      </div>
-                      <div className={`text-xs truncate ${msg.out ? "text-white/80" : "text-muted-foreground"}`}>
-                        {msg.reply_to.text || (msg.reply_to.media_type === "image" ? "📷 Фото" : msg.reply_to.media_type === "video" ? "🎥 Видео" : "[медиа]")}
-                      </div>
-                    </button>
-                  )}
-                  {(msg.media_url || msg.image_url) && (
-                    <div className="p-1.5">
-                      <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} out={msg.out} />
-                    </div>
-                  )}
-                  {msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎") && (
-                    <p className="px-4 py-2.5">{msg.text}</p>
-                  )}
-                  <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
-                    {msg.edited_at && (
-                      <span className={`text-[10px] italic ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>изменено</span>
-                    )}
-                    <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
-                    {msg.out && (
-                      <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
-                    )}
+            // Date separator
+            const ts = msg.created_at || 0;
+            const k = dayKey(ts);
+            if (ts && k !== prevDayKey) {
+              prevDayKey = k;
+              nodes.push(
+                <div key={`d-${k}-${msg.id}`} className="flex justify-center my-3">
+                  <div className="px-3 py-1 glass rounded-full text-[11px] text-muted-foreground capitalize">
+                    {formatDateLabel(ts)}
                   </div>
                 </div>
-                {(msg.reactions || []).filter(r => r.emoji !== "__removed__").length > 0 && (
-                  <ReactionBar
-                    reactions={msg.reactions || []}
-                    currentUserId={currentUser.id}
-                    onReact={(emoji) => addReaction(msg.id, emoji)}
-                  />
-                )}
-              </div>
+              );
+            }
+
+            const url = msg.text ? extractFirstUrl(msg.text) : null;
+            const showText = msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎");
+
+            nodes.push(
+              <SwipeableMessage key={msg.id} out={msg.out} onReply={() => handleReply(msg.id)}>
+                <div
+                  id={`msg-${msg.id}`}
+                  className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in transition-all ${highlightId === msg.id ? "scale-[1.02]" : ""}`}
+                  style={{ animationDelay: `${Math.min(i, 10) * 0.03}s` }}
+                >
+                  <div
+                    className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
+                      msg.out
+                        ? "msg-bubble-out text-white rounded-tr-sm"
+                        : "msg-bubble-in text-foreground rounded-tl-sm"
+                    } ${highlightId === msg.id ? "ring-2 ring-violet-400" : ""}`}
+                    onMouseDown={() => startHold(msg.id, msg.out)}
+                    onMouseUp={cancelHold}
+                    onMouseLeave={cancelHold}
+                    onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
+                  >
+                    {msg.forwarded_from_name && (
+                      <div className={`px-4 pt-2 pb-0.5 text-[11px] font-medium ${msg.out ? "text-white/80" : "text-violet-400"} flex items-center gap-1`}>
+                        <Icon name="Forward" size={11} />
+                        Переслано от {msg.forwarded_from_name}
+                      </div>
+                    )}
+                    {msg.reply_to && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); scrollToMessage(msg.reply_to!.id); }}
+                        className={`block w-full text-left mx-1 mt-1 px-3 py-1.5 rounded-lg border-l-2 ${msg.out ? "bg-white/15 border-white" : "bg-violet-500/15 border-violet-400"}`}
+                      >
+                        <div className={`text-[11px] font-medium ${msg.out ? "text-white" : "text-violet-400"}`}>
+                          {msg.reply_to.sender_name}
+                        </div>
+                        <div className={`text-xs truncate ${msg.out ? "text-white/80" : "text-muted-foreground"}`}>
+                          {msg.reply_to.text || (msg.reply_to.media_type === "image" ? "📷 Фото" : msg.reply_to.media_type === "video" ? "🎥 Видео" : "[медиа]")}
+                        </div>
+                      </button>
+                    )}
+                    {(msg.media_url || msg.image_url) && (
+                      <div className="p-1.5">
+                        <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} out={msg.out} />
+                      </div>
+                    )}
+                    {showText && (
+                      <p className="px-4 py-2.5 whitespace-pre-wrap break-words">
+                        <LinkifiedText text={msg.text} out={msg.out} />
+                      </p>
+                    )}
+                    {url && showText && (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className={`block mx-3 mb-2 px-3 py-2 rounded-lg border-l-2 ${msg.out ? "bg-white/10 border-white/60" : "bg-white/5 border-violet-400"} hover:opacity-90 transition-opacity`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon name="Link" size={12} className={msg.out ? "text-white/80" : "text-violet-400"} />
+                          <span className={`text-[11px] font-medium ${msg.out ? "text-white" : "text-violet-400"}`}>
+                            {getDomain(url)}
+                          </span>
+                        </div>
+                        <div className={`text-xs mt-0.5 truncate ${msg.out ? "text-white/80" : "text-muted-foreground"}`}>
+                          {url}
+                        </div>
+                      </a>
+                    )}
+                    <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
+                      {msg.edited_at && (
+                        <span className={`text-[10px] italic ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>изменено</span>
+                      )}
+                      <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
+                      {msg.out && (
+                        <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
+                      )}
+                    </div>
+                  </div>
+                  {(msg.reactions || []).filter(r => r.emoji !== "__removed__").length > 0 && (
+                    <ReactionBar
+                      reactions={msg.reactions || []}
+                      currentUserId={currentUser.id}
+                      onReact={(emoji) => addReaction(msg.id, emoji)}
+                    />
+                  )}
+                </div>
+              </SwipeableMessage>
             );
           });
+
+          return nodes;
         })()}
         {isTyping && (
           <div className="flex justify-start animate-fade-in">
@@ -548,6 +625,20 @@ export function ChatWindow({
         )}
         <div ref={endRef} />
       </div>
+
+      {showScrollDown && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute right-4 bottom-24 z-20 w-11 h-11 rounded-full glass-strong flex items-center justify-center shadow-lg hover:bg-white/10 transition-all animate-fade-in"
+        >
+          <Icon name="ChevronDown" size={20} className="text-foreground" />
+          {newCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1.5 grad-primary rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+              {newCount > 99 ? "99+" : newCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <ChatInput
         input={input}
