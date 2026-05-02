@@ -59,6 +59,13 @@ export function ChatWindow({
 
   const loadMessages = useCallback(async (since = 0) => {
     const data = await api("get_messages", { chat_id: chat.id, since }, currentUser.id);
+
+    // Удаляем у себя то, что удалили на сервере (для получателя)
+    if (Array.isArray(data.removed_ids) && data.removed_ids.length > 0) {
+      const removedSet = new Set<number>(data.removed_ids);
+      setMessages(prev => prev.some(m => removedSet.has(m.id)) ? prev.filter(m => !removedSet.has(m.id)) : prev);
+    }
+
     if (data.messages && data.messages.length > 0) {
       const mapped: Message[] = data.messages.map((m: {
         id: number; text: string; created_at: number; sender_id: number; sender_name?: string; read_at?: number;

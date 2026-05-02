@@ -218,7 +218,7 @@ def handler(event: dict, context) -> dict:
                        m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
-                WHERE m.chat_id = %s AND m.created_at > %s
+                WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
                 ORDER BY m.created_at ASC LIMIT 100""",
             (int(chat_id), effective_since)
         )
@@ -257,6 +257,14 @@ def handler(event: dict, context) -> dict:
                     reactions_map[mid] = []
                 reactions_map[mid].append({"emoji": r[1], "user_name": r[2], "user_id": r[3]})
 
+        # ids удалённых за период (чтобы фронт убрал их из DOM)
+        cur.execute(
+            f"""SELECT id FROM {SCHEMA}.messages
+                WHERE chat_id = %s AND removed_at IS NOT NULL""",
+            (int(chat_id),)
+        )
+        removed_ids = [r[0] for r in cur.fetchall()]
+
         conn.close()
         messages = [{
             "id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3],
@@ -270,7 +278,7 @@ def handler(event: dict, context) -> dict:
             "edited_at": r[15],
             "reactions": reactions_map.get(r[0], []),
         } for r in rows]
-        return ok({"messages": messages, "now": int(time.time())})
+        return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
 
     # ── send_message ──────────────────────────────────────────────────────────
     if action == "send_message":
@@ -478,17 +486,40 @@ def handler(event: dict, context) -> dict:
         if not msg_id:
             conn.close()
             return err("Укажите message_id")
-        cur.execute(f"SELECT sender_id FROM {SCHEMA}.messages WHERE id = %s", (int(msg_id),))
+        cur.execute(f"SELECT sender_id, chat_id FROM {SCHEMA}.messages WHERE id = %s", (int(msg_id),))
         row = cur.fetchone()
         if not row:
             conn.close()
             return err("Сообщение не найдено", 404)
-        if row[0] != int(user_id):
+        if int(row[0]) != int(user_id):
             conn.close()
             return err("Нельзя удалить чужое сообщение", 403)
-        cur.execute(f"UPDATE {SCHEMA}.messages SET text = '' WHERE id = %s", (int(msg_id),))
+        chat_id_v = int(row[1])
+        now = int(time.time())
+        # мягкое удаление: метка removed_at + чистим контент
+        cur.execute(
+            f"""UPDATE {SCHEMA}.messages
+                SET removed_at = %s, text = '', media_url = NULL, media_type = NULL,
+                    image_url = NULL, file_name = NULL, file_size = NULL, duration = NULL,
+                    reply_to_id = NULL
+                WHERE id = %s""",
+            (now, int(msg_id))
+        )
+        # обновим last_message в чате, если удалили последнее
+        cur.execute(
+            f"""SELECT text FROM {SCHEMA}.messages
+                WHERE chat_id = %s AND removed_at IS NULL
+                ORDER BY created_at DESC LIMIT 1""",
+            (chat_id_v,)
+        )
+        last = cur.fetchone()
+        new_last = (last[0] if last else "") or ""
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message = %s WHERE id = %s",
+            (new_last[:100], chat_id_v)
+        )
         conn.close()
-        return ok({"ok": True})
+        return ok({"ok": True, "id": int(msg_id), "removed_at": now})
 
     # ── get_contacts ──────────────────────────────────────────────────────────
     if action == "get_contacts":
