@@ -745,6 +745,8 @@ def handler(event: dict, context) -> dict:
                 (f"%{call_id}%",)
             )
             already = cur.fetchone()
+            missed_recipient_id = None
+            missed_caller_name = None
             if not answered and not already:
                 # Определяем from/to и chat
                 cur.execute(
@@ -777,7 +779,28 @@ def handler(event: dict, context) -> dict:
                         f"UPDATE {SCHEMA}.chats SET last_message = %s, last_message_at = %s WHERE id = %s",
                         ("📵 Пропущенный звонок", now, miss_chat_id)
                     )
+                    # Получим имя звонящего и id получателя для push
+                    cur.execute(f"SELECT name FROM {SCHEMA}.users WHERE id = %s", (int(caller_id),))
+                    cn = cur.fetchone()
+                    missed_caller_name = cn[0] if cn else "Кто-то"
+                    missed_recipient_id = int(callee_id)
             conn.close()
+            # Push «Пропущенный звонок» — если получатель не отвечал и звонящий повесил трубку
+            if missed_recipient_id and missed_caller_name:
+                push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+                if push_url:
+                    try:
+                        push_body = json.dumps({
+                            "action": "send",
+                            "recipient_id": missed_recipient_id,
+                            "sender_name": missed_caller_name,
+                            "message": f"📵 Пропущенный звонок от {missed_caller_name}",
+                            "tag": f"missed_{call_id}",
+                        }).encode("utf-8")
+                        req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                        urllib.request.urlopen(req, timeout=5)
+                    except Exception:
+                        pass
         else:
             conn.close()
         return ok({"ok": True})

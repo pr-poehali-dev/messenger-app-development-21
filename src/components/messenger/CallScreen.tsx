@@ -29,18 +29,26 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sinceRef = useRef(Math.floor(Date.now() / 1000) - 5);
+  const sinceRef = useRef(Math.floor(Date.now() / 1000) - 30);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const remoteDescSetRef = useRef(false);
+  const endedRef = useRef(false);
+  const [mediaError, setMediaError] = useState<string>("");
 
   const cleanup = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (timerRef.current) clearInterval(timerRef.current);
-    pcRef.current?.close();
-    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    try { pcRef.current?.close(); } catch { /* ignore */ }
+    pcRef.current = null;
+    localStreamRef.current?.getTracks().forEach(t => { try { t.stop(); } catch { /* ignore */ } });
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -48,24 +56,79 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     stopDialTone();
   };
 
+  const endCall = (reason: "hangup" | "remote_hangup") => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    if (reason === "hangup") sendSignal("hangup").catch(() => { /* ignore */ });
+    playHangupSound();
+    setState("ended");
+    setTimeout(() => { cleanup(); onClose(); }, 800);
+  };
+
   const sendSignal = async (type: string, payload?: unknown) => {
-    await api("call_signal", { call_id: callId, to_user_id: remoteUserId, type, payload }, currentUser.id);
+    try {
+      await api("call_signal", { call_id: callId, to_user_id: remoteUserId, type, payload }, currentUser.id);
+    } catch { /* ignore network */ }
   };
 
   const startTimer = () => {
     stopRingtone();
     stopDialTone();
+    if (timerRef.current) return;
     timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
   };
 
-  const initPC = async () => {
-    const constraints = isVideo ? { audio: true, video: { facingMode: "user" } } : { audio: true };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const attachRemoteStream = (stream: MediaStream) => {
+    remoteStreamRef.current = stream;
+    if (isVideo && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = stream;
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = 1.0;
+      remoteVideoRef.current.play().catch(() => { /* autoplay-блокировка — разблокируется по тапу */ });
+      // На видеозвонке audio-элемент — резерв, держим без звука чтобы не дублировать
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.muted = true;
+      }
+    } else if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = stream;
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1.0;
+      remoteAudioRef.current.play().catch(() => { /* autoplay-блокировка — разблокируется по тапу */ });
+    }
+  };
+
+  const flushPendingCandidates = async (pc: RTCPeerConnection) => {
+    const queue = pendingCandidatesRef.current;
+    pendingCandidatesRef.current = [];
+    for (const c of queue) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+    }
+  };
+
+  const initPC = async (): Promise<RTCPeerConnection | null> => {
+    let stream: MediaStream;
+    try {
+      const constraints: MediaStreamConstraints = isVideo
+        ? { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } }
+        : { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (e) {
+      const err = e as DOMException;
+      const msg = err.name === "NotAllowedError"
+        ? "Доступ к микрофону/камере запрещён. Разреши в настройках браузера."
+        : err.name === "NotFoundError"
+          ? "Микрофон/камера не найдены"
+          : `Не удалось получить доступ: ${err.message || err.name}`;
+      setMediaError(msg);
+      return null;
+    }
     localStreamRef.current = stream;
 
     if (isVideo && localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
-      localVideoRef.current.play().catch(() => {});
+      localVideoRef.current.muted = true;
+      localVideoRef.current.play().catch(() => { /* ignore */ });
     }
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -78,65 +141,86 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     };
 
     pc.ontrack = (e) => {
-      if (isVideo && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0];
-        remoteVideoRef.current.play().catch(() => {});
-      } else if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = e.streams[0];
-        remoteAudioRef.current.play().catch(() => {});
-      }
-      setState("connected");
-      startTimer();
+      // Все треки от собеседника (audio + video) кладём в один stream
+      const incoming = e.streams[0] || new MediaStream([e.track]);
+      attachRemoteStream(incoming);
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-        setState("ended");
-        setTimeout(() => { cleanup(); onClose(); }, 1500);
+      if (pc.connectionState === "connected") {
+        setState("connected");
+        startTimer();
+        // Повторно дёрнем play для надёжности после установления соединения
+        if (remoteStreamRef.current) attachRemoteStream(remoteStreamRef.current);
+      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        endCall("remote_hangup");
       }
     };
 
     return pc;
   };
 
+  const handleSignal = async (pc: RTCPeerConnection, sig: { type: string; payload: unknown; created_at: number }) => {
+    if (sig.type === "offer") {
+      // Принимающий получает offer
+      if (pc.signalingState !== "stable") return;
+      await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as RTCSessionDescriptionInit));
+      remoteDescSetRef.current = true;
+      await flushPendingCandidates(pc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sendSignal("answer", { sdp: answer.sdp, type: answer.type });
+    } else if (sig.type === "answer") {
+      if (pc.signalingState !== "have-local-offer") return;
+      await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as RTCSessionDescriptionInit));
+      remoteDescSetRef.current = true;
+      await flushPendingCandidates(pc);
+    } else if (sig.type === "candidate") {
+      const cand = sig.payload as RTCIceCandidateInit;
+      if (!remoteDescSetRef.current) {
+        pendingCandidatesRef.current.push(cand);
+      } else {
+        try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch { /* ignore */ }
+      }
+    } else if (sig.type === "hangup" || sig.type === "decline" || sig.type === "end" || sig.type === "cancel") {
+      endCall("remote_hangup");
+    }
+  };
+
+  const pollSignals = () => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        const data = await api("get_call_signals", { call_id: callId, since: sinceRef.current }, currentUser.id);
+        if (!data.signals) return;
+        for (const sig of data.signals) {
+          sinceRef.current = Math.max(sinceRef.current, sig.created_at);
+          await handleSignal(pc, sig);
+        }
+      } catch { /* network ignore */ }
+    }, 1200);
+  };
+
   const startCall = async () => {
     const pc = await initPC();
+    if (!pc) return;
+    pollSignals(); // запускаем polling ДО отправки offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await sendSignal("offer", { sdp: offer.sdp, type: offer.type });
-    pollSignals();
   };
 
   const acceptCall = async () => {
     setState("calling");
     const pc = await initPC();
-    pollSignals(pc);
-  };
-
-  const pollSignals = (existingPc?: RTCPeerConnection) => {
-    pollRef.current = setInterval(async () => {
-      const pc = existingPc || pcRef.current;
-      if (!pc) return;
-      const data = await api("get_call_signals", { call_id: callId, since: sinceRef.current }, currentUser.id);
-      if (!data.signals) return;
-      for (const sig of data.signals) {
-        sinceRef.current = Math.max(sinceRef.current, sig.created_at);
-        if (sig.type === "offer" && pc.signalingState === "stable") {
-          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await sendSignal("answer", { sdp: answer.sdp, type: answer.type });
-        } else if (sig.type === "answer" && pc.signalingState === "have-local-offer") {
-          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
-        } else if (sig.type === "candidate") {
-          try { await pc.addIceCandidate(new RTCIceCandidate(sig.payload)); } catch { /* ignore */ }
-        } else if (sig.type === "hangup") {
-          playHangupSound();
-          setState("ended");
-          setTimeout(() => { cleanup(); onClose(); }, 1500);
-        }
-      }
-    }, 1500);
+    if (!pc) return;
+    pollSignals();
+    // Жест пользователя — самое время разблокировать audio.play()
+    if (remoteAudioRef.current) {
+      try { await remoteAudioRef.current.play(); } catch { /* ignore */ }
+    }
   };
 
   useEffect(() => {
@@ -147,21 +231,11 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
       startCall();
     }
     return cleanup;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const hangup = async () => {
-    playHangupSound();
-    await sendSignal("hangup");
-    setState("ended");
-    setTimeout(() => { cleanup(); onClose(); }, 800);
-  };
-
-  const reject = () => {
-    playHangupSound();
-    sendSignal("hangup");
-    cleanup();
-    onClose();
-  };
+  const hangup = () => endCall("hangup");
+  const reject = () => endCall("hangup");
 
   const fmtDuration = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -173,9 +247,28 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     ended: "Звонок завершён",
   }[state];
 
+  const unlockAudio = async () => {
+    if (remoteAudioRef.current) {
+      try { remoteAudioRef.current.muted = false; await remoteAudioRef.current.play(); } catch { /* ignore */ }
+    }
+    if (remoteVideoRef.current) {
+      try { remoteVideoRef.current.muted = false; await remoteVideoRef.current.play(); } catch { /* ignore */ }
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-[#0d0d1a] py-16 px-8 animate-fade-in">
+    <div
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-[#0d0d1a] py-16 px-8 animate-fade-in"
+      onClick={unlockAudio}
+    >
       <audio ref={remoteAudioRef} autoPlay playsInline />
+
+      {mediaError && (
+        <div className="absolute top-4 left-4 right-4 z-20 px-4 py-3 rounded-2xl bg-red-500/15 border border-red-500/40 text-red-200 text-sm flex items-center gap-2">
+          <Icon name="AlertCircle" size={16} />
+          <span className="flex-1">{mediaError}</span>
+        </div>
+      )}
 
       {/* Video views */}
       {isVideo && (
@@ -279,12 +372,19 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
 
             <div className="flex flex-col items-center gap-2">
               <button
-                onClick={() => setSpeaker(s => !s)}
+                onClick={() => {
+                  setSpeaker(s => {
+                    const next = !s;
+                    if (remoteAudioRef.current) remoteAudioRef.current.muted = !next;
+                    if (remoteVideoRef.current) remoteVideoRef.current.muted = !next;
+                    return next;
+                  });
+                }}
                 className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${speaker ? "grad-primary text-white" : "glass text-muted-foreground"}`}
               >
                 <Icon name={speaker ? "Volume2" : "VolumeX"} size={22} />
               </button>
-              <span className="text-xs text-muted-foreground">Динамик</span>
+              <span className="text-xs text-muted-foreground">{speaker ? "Звук вкл." : "Звук выкл."}</span>
             </div>
 
             {isVideo && (
