@@ -55,22 +55,22 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите phone и name")
 
-        cur.execute(f"SELECT id, phone, name, avatar_url, created_at FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        cur.execute(f"SELECT id, phone, name, avatar_url, created_at, about FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         existing = cur.fetchone()
         if existing:
             cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE phone = %s", (int(time.time()), phone))
             conn.close()
-            return ok({"user": {"id": existing[0], "phone": existing[1], "name": existing[2], "avatar_url": existing[3], "created_at": existing[4]}, "existed": True})
+            return ok({"user": {"id": existing[0], "phone": existing[1], "name": existing[2], "avatar_url": existing[3], "created_at": existing[4], "about": existing[5]}, "existed": True})
 
         cur.execute(
             f"""INSERT INTO {SCHEMA}.users (phone, name, last_seen, created_at)
                 VALUES (%s, %s, %s, %s)
-                RETURNING id, phone, name, avatar_url, created_at""",
+                RETURNING id, phone, name, avatar_url, created_at, about""",
             (phone, name, int(time.time()), int(time.time()))
         )
         row = cur.fetchone()
         conn.close()
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4]}})
+        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5]}})
 
     # ── get_me ────────────────────────────────────────────────────────────────
     if action == "get_me":
@@ -78,12 +78,12 @@ def handler(event: dict, context) -> dict:
         if not phone:
             conn.close()
             return err("Укажите phone")
-        cur.execute(f"SELECT id, phone, name, avatar_url, created_at FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        cur.execute(f"SELECT id, phone, name, avatar_url, created_at, about FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         row = cur.fetchone()
         conn.close()
         if not row:
             return err("Пользователь не найден", 404)
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4]}})
+        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5]}})
 
     # ── get_users ─────────────────────────────────────────────────────────────
     if action == "get_users":
@@ -424,19 +424,32 @@ def handler(event: dict, context) -> dict:
                 return err("Неверный avatar_url")
             sets.append("avatar_url = %s")
             vals.append(avatar_url)
+        if "about" in body:
+            about_raw = body.get("about")
+            if about_raw is None:
+                about_val = None
+            else:
+                about_val = str(about_raw).strip()
+                if len(about_val) > 200:
+                    conn.close()
+                    return err("Текст «О себе» слишком длинный (макс. 200 символов)")
+                if about_val == "":
+                    about_val = None
+            sets.append("about = %s")
+            vals.append(about_val)
         if not sets:
             conn.close()
             return err("Нет данных для обновления")
         vals.append(int(user_id))
         cur.execute(
-            f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id = %s RETURNING id, phone, name, avatar_url, created_at",
+            f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id = %s RETURNING id, phone, name, avatar_url, created_at, about",
             tuple(vals)
         )
         row = cur.fetchone()
         conn.close()
         if not row:
             return err("Пользователь не найден", 404)
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4]}})
+        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5]}})
 
     # ── set_typing ────────────────────────────────────────────────────────────
     if action == "set_typing":

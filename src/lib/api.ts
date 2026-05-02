@@ -134,6 +134,7 @@ export interface User {
   name: string;
   avatar_url?: string;
   last_seen?: number;
+  about?: string | null;
 }
 
 export interface Story {

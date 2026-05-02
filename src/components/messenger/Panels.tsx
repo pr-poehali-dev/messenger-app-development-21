@@ -125,6 +125,21 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
   const [editName, setEditName] = useState(currentUser.name);
   const [saving, setSaving] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
+  const [editingAbout, setEditingAbout] = useState(false);
+  const [aboutDraft, setAboutDraft] = useState(currentUser.about || "");
+  const [savingAbout, setSavingAbout] = useState(false);
+
+  const saveAbout = async () => {
+    setSavingAbout(true);
+    try {
+      const data = await api("update_profile", { about: aboutDraft.trim() }, currentUser.id);
+      if (data.user) {
+        onUserUpdate?.(data.user);
+        localStorage.setItem("nova_user", JSON.stringify(data.user));
+        setEditingAbout(false);
+      }
+    } catch { /* ignore */ } finally { setSavingAbout(false); }
+  };
   const [theme, setTheme] = useState<"dark" | "midnight" | "violet">(() => (localStorage.getItem("nova_theme") as "dark" | "midnight" | "violet") || "dark");
   const [fontSize, setFontSize] = useState<number>(() => Number(localStorage.getItem("nova_font_size") || 16));
 
@@ -281,9 +296,42 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
           <div className="w-2 h-2 rounded-full bg-emerald-400" />
           <span className="text-emerald-400 text-xs font-medium">В сети</span>
         </div>
-        <div className="mt-3 px-4 py-2.5 glass rounded-2xl text-sm text-muted-foreground text-left">
-          🚀 Запускаю новые проекты. Люблю технологии и кофе ☕
-        </div>
+        {editingAbout ? (
+          <div className="mt-3 glass rounded-2xl p-3 text-left">
+            <textarea
+              autoFocus
+              value={aboutDraft}
+              maxLength={200}
+              onChange={(e) => setAboutDraft(e.target.value)}
+              placeholder="Расскажи о себе…"
+              rows={3}
+              className="w-full bg-white/5 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[11px] text-muted-foreground">{aboutDraft.length}/200</span>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingAbout(false)} className="px-3 py-1.5 rounded-lg text-xs hover:bg-white/8">Отмена</button>
+                <button
+                  onClick={saveAbout}
+                  disabled={savingAbout}
+                  className="px-3 py-1.5 grad-primary rounded-lg text-xs text-white font-semibold disabled:opacity-50"
+                >
+                  {savingAbout ? "Сохраняем..." : "Сохранить"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setAboutDraft(currentUser.about || ""); setEditingAbout(true); }}
+            className="mt-3 w-full px-4 py-2.5 glass rounded-2xl text-sm text-left hover:bg-white/8 transition-colors group flex items-start gap-2"
+          >
+            <span className={`flex-1 ${currentUser.about ? "text-foreground" : "text-muted-foreground italic"}`}>
+              {currentUser.about || "Расскажи о себе — это увидят твои контакты"}
+            </span>
+            <Icon name="Pencil" size={13} className="text-muted-foreground group-hover:text-violet-400 mt-0.5 flex-shrink-0" />
+          </button>
+        )}
       </div>
 
       {/* Stats */}
