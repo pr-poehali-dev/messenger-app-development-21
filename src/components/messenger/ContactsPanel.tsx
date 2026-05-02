@@ -24,6 +24,9 @@ export function ContactsPanel({
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [search, setSearch] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<null | { added: number; total: number; not_registered: number }>(null);
+  const [syncError, setSyncError] = useState("");
 
   const loadContacts = async () => {
     setLoading(true);
@@ -48,6 +51,61 @@ export function ContactsPanel({
       setAddError(data.error || "Ошибка");
     }
     setAdding(false);
+  };
+
+  type PickerContact = { name?: string[]; tel?: string[] };
+  type ContactsManager = {
+    select: (props: string[], opts?: { multiple?: boolean }) => Promise<PickerContact[]>;
+    getProperties: () => Promise<string[]>;
+  };
+
+  const syncPhoneContacts = async () => {
+    setSyncError("");
+    setSyncResult(null);
+    const nav = navigator as Navigator & { contacts?: ContactsManager };
+    if (!nav.contacts || typeof nav.contacts.select !== "function") {
+      setSyncError(
+        "Браузер устройства не поддерживает доступ к контактам. На iPhone и в десктопных браузерах доступ к телефонной книге через сайт пока невозможен. На Android Chrome — работает."
+      );
+      return;
+    }
+    try {
+      setSyncing(true);
+      const props = await nav.contacts.getProperties();
+      if (!props.includes("tel")) {
+        setSyncError("Браузер не разрешает читать номера телефонов из контактов.");
+        return;
+      }
+      const picked = await nav.contacts.select(["name", "tel"], { multiple: true });
+      const items: { phone: string; name?: string }[] = [];
+      for (const c of picked) {
+        const nm = (c.name && c.name[0]) || undefined;
+        const tels = c.tel || [];
+        for (const t of tels) {
+          if (t && typeof t === "string") items.push({ phone: t, name: nm });
+        }
+      }
+      if (items.length === 0) {
+        setSyncError("Не выбрано ни одного контакта с номером.");
+        return;
+      }
+      const data = await api("import_contacts", { contacts: items }, currentUser.id);
+      if (data.ok) {
+        setSyncResult({
+          added: Number(data.added) || 0,
+          total: items.length,
+          not_registered: Array.isArray(data.not_registered) ? data.not_registered.length : 0,
+        });
+        await loadContacts();
+        try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(20); } catch { /* ignore */ }
+      } else {
+        setSyncError(data.error || "Не удалось синхронизировать контакты");
+      }
+    } catch (e) {
+      setSyncError((e as Error).message || "Не удалось получить контакты");
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const removeContact = async (contactId: number) => {
@@ -94,13 +152,50 @@ export function ContactsPanel({
             )}
             <h2 className="text-lg font-bold truncate">Контакты</h2>
           </div>
-          <button
-            onClick={() => { setShowAdd(v => !v); setAddError(""); }}
-            className={`p-2 rounded-xl transition-all flex-shrink-0 ${showAdd ? "grad-primary text-white" : "glass hover:bg-white/8 text-muted-foreground"}`}
-          >
-            <Icon name={showAdd ? "X" : "UserPlus"} size={18} />
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={syncPhoneContacts}
+              disabled={syncing}
+              title="Синхронизировать с контактами телефона"
+              className="p-2 rounded-xl transition-all glass hover:bg-white/8 text-muted-foreground disabled:opacity-50"
+            >
+              {syncing ? (
+                <div className="w-[18px] h-[18px] border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+              ) : (
+                <Icon name="RefreshCw" size={18} />
+              )}
+            </button>
+            <button
+              onClick={() => { setShowAdd(v => !v); setAddError(""); }}
+              className={`p-2 rounded-xl transition-all ${showAdd ? "grad-primary text-white" : "glass hover:bg-white/8 text-muted-foreground"}`}
+            >
+              <Icon name={showAdd ? "X" : "UserPlus"} size={18} />
+            </button>
+          </div>
         </div>
+        {syncResult && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-start gap-2 animate-fade-in">
+            <Icon name="CheckCircle2" size={14} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              Добавлено {syncResult.added} из {syncResult.total}.{" "}
+              {syncResult.not_registered > 0 && (
+                <span className="text-emerald-300/70">{syncResult.not_registered} ещё не в Nova.</span>
+              )}
+            </div>
+            <button onClick={() => setSyncResult(null)} className="text-emerald-300/60 hover:text-emerald-300">
+              <Icon name="X" size={12} />
+            </button>
+          </div>
+        )}
+        {syncError && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2 animate-fade-in">
+            <Icon name="AlertTriangle" size={14} className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">{syncError}</div>
+            <button onClick={() => setSyncError("")} className="text-amber-300/60 hover:text-amber-300">
+              <Icon name="X" size={12} />
+            </button>
+          </div>
+        )}
         {/* Search */}
         <div className="flex items-center gap-2 glass rounded-xl px-3 py-2">
           <Icon name="Search" size={15} className="text-muted-foreground" />
@@ -154,7 +249,15 @@ export function ContactsPanel({
               <Icon name="Users" size={28} className="text-violet-400" />
             </div>
             <p className="font-semibold mb-1">Контактов пока нет</p>
-            <p className="text-sm text-muted-foreground">Нажми + чтобы добавить первый контакт</p>
+            <p className="text-sm text-muted-foreground mb-4">Импортируй телефонную книгу или добавь номер вручную</p>
+            <button
+              onClick={syncPhoneContacts}
+              disabled={syncing}
+              className="grad-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold glow-primary transition-opacity hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Icon name="RefreshCw" size={16} />
+              {syncing ? "Синхронизируем..." : "Синхронизировать с телефоном"}
+            </button>
           </div>
         )}
 

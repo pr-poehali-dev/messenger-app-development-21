@@ -15,6 +15,14 @@
       "body": {"action": "register", "phone": "79990000001", "name": "TestBot"},
       "expectedStatus": 200,
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "import_contacts requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "import_contacts", "contacts": [{"phone": "79990000002", "name": "Test"}]},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
     }
   ]
 }

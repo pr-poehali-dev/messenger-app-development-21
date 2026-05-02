@@ -572,6 +572,81 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True, "contact": {"id": found[0], "name": name_override or found[1], "phone": phone}})
 
+    # ── import_contacts (массовый импорт телефонной книги) ────────────────────
+    if action == "import_contacts":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        items = body.get("contacts") or []
+        if not isinstance(items, list):
+            conn.close()
+            return err("Поле contacts должно быть массивом")
+
+        def _norm(p: str) -> str:
+            p = (p or "").strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+            if p.startswith("+"):
+                p = p[1:]
+            if p.startswith("8") and len(p) == 11:
+                p = "7" + p[1:]
+            return p
+
+        # Подготовим уникальный список нормализованных телефонов
+        normalized: list[tuple[str, str]] = []  # (phone, name)
+        seen: set[str] = set()
+        for it in items[:1000]:  # лимит на всякий случай
+            if not isinstance(it, dict):
+                continue
+            ph = _norm(str(it.get("phone") or ""))
+            nm = (str(it.get("name") or "")).strip() or None
+            if not ph or ph in seen:
+                continue
+            seen.add(ph)
+            normalized.append((ph, nm))
+
+        if not normalized:
+            conn.close()
+            return ok({"ok": True, "added": 0, "matched": [], "not_registered": []})
+
+        phones_list = [p for p, _ in normalized]
+        # Безопасно строим in-list (только цифры внутри)
+        safe_phones = [p for p in phones_list if p.isdigit()]
+        if not safe_phones:
+            conn.close()
+            return ok({"ok": True, "added": 0, "matched": [], "not_registered": phones_list})
+
+        in_clause = ",".join(f"'{p}'" for p in safe_phones)
+        cur.execute(f"SELECT id, name, phone, avatar_url FROM {SCHEMA}.users WHERE phone IN ({in_clause})")
+        rows = cur.fetchall()
+        users_by_phone = {r[2]: {"id": r[0], "name": r[1], "phone": r[2], "avatar_url": r[3]} for r in rows}
+
+        now = int(time.time())
+        added = 0
+        matched: list[dict] = []
+        not_registered: list[str] = []
+        me = int(user_id)
+        names_by_phone = {p: n for p, n in normalized}
+
+        for phone in safe_phones:
+            u = users_by_phone.get(phone)
+            if not u:
+                not_registered.append(phone)
+                continue
+            if u["id"] == me:
+                continue
+            name_override = names_by_phone.get(phone)
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.contacts (user_id, contact_id, name_override, created_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, contact_id) DO UPDATE
+                    SET name_override = COALESCE(EXCLUDED.name_override, {SCHEMA}.contacts.name_override)""",
+                (me, u["id"], name_override, now),
+            )
+            added += 1
+            matched.append({"id": u["id"], "name": name_override or u["name"], "phone": phone, "avatar_url": u["avatar_url"]})
+
+        conn.close()
+        return ok({"ok": True, "added": added, "matched": matched, "not_registered": not_registered})
+
     # ── remove_contact ────────────────────────────────────────────────────────
     if action == "remove_contact":
         if not user_id:

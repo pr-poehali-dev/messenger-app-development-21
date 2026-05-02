@@ -43,6 +43,7 @@ export function useEdgeSwipeBack(onBack?: () => void, opts?: {
       const dx = t.clientX - startX;
       const dy = Math.abs(t.clientY - startY);
       if (dx >= minDist && dy <= maxV) {
+        try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(15); } catch { /* ignore */ }
         onBack();
       }
     };
