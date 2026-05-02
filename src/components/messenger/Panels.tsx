@@ -12,6 +12,11 @@ import {
   saveCustomRingtone, getCustomRingtoneMeta, clearCustomRingtone,
   type RingtoneId, type NotifyId,
 } from "@/lib/sounds";
+import { applyTheme, applyFontSize, getStoredTheme, getStoredFontSize, type ThemeId } from "@/lib/theme";
+
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024;        // 5 МБ
+const MAX_RINGTONE_SIZE = 10 * 1024 * 1024;     // 10 МБ
+const MAX_ABOUT_LEN = 200;
 
 // ─── StoryViewer ──────────────────────────────────────────────────────────────
 
@@ -149,17 +154,11 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       }
     } catch { /* ignore */ } finally { setSavingAbout(false); }
   };
-  const [theme, setTheme] = useState<"dark" | "midnight" | "violet">(() => (localStorage.getItem("nova_theme") as "dark" | "midnight" | "violet") || "dark");
-  const [fontSize, setFontSize] = useState<number>(() => Number(localStorage.getItem("nova_font_size") || 16));
+  const [theme, setTheme] = useState<ThemeId>(() => getStoredTheme());
+  const [fontSize, setFontSize] = useState<number>(() => getStoredFontSize());
   const [contactsCount, setContactsCount] = useState<number>(0);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.theme = theme;
-    root.classList.remove("theme-dark", "theme-midnight", "theme-violet");
-    root.classList.add(`theme-${theme}`);
-    root.style.fontSize = `${fontSize}px`;
-  }, [theme, fontSize]);
+  useEffect(() => { applyTheme(theme, fontSize); }, [theme, fontSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,7 +202,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       setAvatarError("Можно загрузить только изображение");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_AVATAR_SIZE) {
       setAvatarError("Файл слишком большой (макс 5 МБ)");
       return;
     }
@@ -323,14 +322,14 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
             <textarea
               autoFocus
               value={aboutDraft}
-              maxLength={200}
+              maxLength={MAX_ABOUT_LEN}
               onChange={(e) => setAboutDraft(e.target.value)}
               placeholder="Расскажи о себе…"
               rows={3}
               className="w-full bg-white/5 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-500 resize-none"
             />
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11px] text-muted-foreground">{aboutDraft.length}/200</span>
+              <span className="text-[11px] text-muted-foreground">{aboutDraft.length}/{MAX_ABOUT_LEN}</span>
               <div className="flex gap-2">
                 <button onClick={() => setEditingAbout(false)} className="px-3 py-1.5 rounded-lg text-xs hover:bg-white/8">Отмена</button>
                 <button
@@ -429,14 +428,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
               {(["dark", "midnight", "violet"] as const).map(t => (
                 <button
                   key={t}
-                  onClick={() => {
-                    setTheme(t);
-                    const root = document.documentElement;
-                    root.dataset.theme = t;
-                    root.classList.remove("theme-dark", "theme-midnight", "theme-violet");
-                    root.classList.add(`theme-${t}`);
-                    localStorage.setItem("nova_theme", t);
-                  }}
+                  onClick={() => { setTheme(t); applyTheme(t); }}
                   className={`p-3 rounded-xl border-2 transition-all ${theme === t ? "border-violet-500 bg-violet-500/10" : "border-white/10 hover:border-white/20"}`}
                 >
                   <div className={`w-full h-8 rounded-lg mb-2 ${t === "dark" ? "bg-gradient-to-br from-zinc-900 to-zinc-800" : t === "midnight" ? "bg-gradient-to-br from-slate-900 to-indigo-950" : "bg-gradient-to-br from-violet-900 to-fuchsia-900"}`} />
@@ -453,7 +445,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
               ] as const).map(s => (
                 <button
                   key={s.v}
-                  onClick={() => { setFontSize(s.v); document.documentElement.style.fontSize = `${s.v}px`; localStorage.setItem("nova_font_size", String(s.v)); }}
+                  onClick={() => { setFontSize(s.v); applyFontSize(s.v); }}
                   className={`flex-1 py-2 rounded-xl border-2 ${fontSize === s.v ? "border-violet-500 bg-violet-500/10" : "border-white/10"} text-sm font-bold`}
                 >{s.l}</button>
               ))}
@@ -489,20 +481,30 @@ export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBa
   const [customMeta, setCustomMeta] = useState<{ name: string; size: number; type: string } | null>(null);
   const ringFileRef = useRef<HTMLInputElement | null>(null);
   const [pushPerm, setPushPerm] = useState<NotificationPermission>(() => (typeof Notification !== "undefined" ? Notification.permission : "default"));
+  const [soundError, setSoundError] = useState<string>("");
 
   useEffect(() => { getCustomRingtoneMeta().then(setCustomMeta); }, []);
+  useEffect(() => {
+    if (!soundError) return;
+    const t = setTimeout(() => setSoundError(""), 3500);
+    return () => clearTimeout(t);
+  }, [soundError]);
 
   const onPickRingFile = () => ringFileRef.current?.click();
   const onRingFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    if (!f.type.startsWith("audio/")) { alert("Можно загрузить только аудио"); return; }
-    if (f.size > 10 * 1024 * 1024) { alert("Файл слишком большой (макс 10 МБ)"); return; }
-    const meta = await saveCustomRingtone(f);
-    setCustomMeta({ name: meta.name, size: meta.size, type: f.type });
-    setRingtoneId("custom");
-    setRingtone("custom");
+    if (!f.type.startsWith("audio/")) { setSoundError("Можно загрузить только аудио"); return; }
+    if (f.size > MAX_RINGTONE_SIZE) { setSoundError("Файл слишком большой (макс 10 МБ)"); return; }
+    try {
+      const meta = await saveCustomRingtone(f);
+      setCustomMeta({ name: meta.name, size: meta.size, type: f.type });
+      setRingtoneId("custom");
+      setRingtone("custom");
+    } catch {
+      setSoundError("Не удалось сохранить файл");
+    }
   };
 
   const requestPushPerm = async () => {
@@ -649,6 +651,12 @@ export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBa
 
         {/* Звуки */}
         <div className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mt-4 mb-1 px-1">Звуки</div>
+        {soundError && (
+          <div className="px-4 py-2 glass rounded-xl border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+            <Icon name="AlertCircle" size={14} />
+            <span>{soundError}</span>
+          </div>
+        )}
 
         {/* Громкость */}
         <div className="px-4 py-3 glass rounded-2xl">

@@ -4,12 +4,23 @@ import Icon from "@/components/ui/icon";
 const ADMIN_URL = "https://functions.poehali.dev/74374a22-83da-4771-855b-1716418e719b";
 
 async function adminApi(action: string, body: Record<string, unknown> = {}, token: string) {
-  const res = await fetch(ADMIN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-    body: JSON.stringify({ action, ...body }),
-  });
-  return res.json();
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(ADMIN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+      body: JSON.stringify({ action, ...body }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) {
+      return { error: `HTTP ${res.status}` };
+    }
+    return await res.json();
+  } catch (e) {
+    return { error: (e as Error).message || "Сетевая ошибка" };
+  }
 }
 
 interface Stats {
@@ -25,6 +36,20 @@ interface AdminUser {
   id: number; phone: string; name: string; last_seen: number; created_at: number;
   online: boolean; msg_count?: number; chat_count?: number;
 }
+
+const LOAD_COLOR: Record<string, string> = {
+  low: "text-emerald-400",
+  medium: "text-amber-400",
+  high: "text-red-400",
+};
+const LOAD_BG: Record<string, string> = {
+  low: "bg-emerald-500/10 border-emerald-500/20",
+  medium: "bg-amber-500/10 border-amber-500/20",
+  high: "bg-red-500/10 border-red-500/20",
+};
+const LOAD_LABEL: Record<string, string> = {
+  low: "низкая", medium: "средняя", high: "высокая",
+};
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState(() => sessionStorage.getItem("nova_admin_token") || "");
@@ -53,15 +78,29 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [confirmNuke, setConfirmNuke] = useState(false);
   const [nuking, setNuking] = useState(false);
   const [nukeResult, setNukeResult] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [apiError, setApiError] = useState<string>("");
+
+  // Авто-скрытие баннера ошибки
+  useEffect(() => {
+    if (!apiError) return;
+    const t = setTimeout(() => setApiError(""), 4000);
+    return () => clearTimeout(t);
+  }, [apiError]);
 
   const login = async () => {
     setAuthError("");
+    if (!authInput.trim()) { setAuthError("Введите пароль"); return; }
+    setAuthLoading(true);
     const data = await adminApi("stats", {}, authInput);
+    setAuthLoading(false);
     if (data.users) {
       setToken(authInput);
       sessionStorage.setItem("nova_admin_token", authInput);
       setAuthed(true);
       setStats(data);
+    } else if (data.error) {
+      setAuthError(`Ошибка: ${data.error}`);
     } else {
       setAuthError("Неверный пароль");
     }
@@ -70,12 +109,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const loadStats = useCallback(async () => {
     const data = await adminApi("stats", {}, token);
     if (data.users) setStats(data);
+    else if (data.error) setApiError(`Не удалось загрузить статистику: ${data.error}`);
   }, [token]);
 
   const loadUsers = useCallback(async (q = "") => {
     setLoading(true);
     const data = await adminApi("users", { search: q, limit: 50 }, token);
     if (data.users) { setUsers(data.users); setUsersTotal(data.total); }
+    else if (data.error) setApiError(`Не удалось загрузить список: ${data.error}`);
     setLoading(false);
   }, [token]);
 
@@ -172,9 +213,6 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const loadColor = { low: "text-emerald-400", medium: "text-amber-400", high: "text-red-400" };
-  const loadBg = { low: "bg-emerald-500/10 border-emerald-500/20", medium: "bg-amber-500/10 border-amber-500/20", high: "bg-red-500/10 border-red-500/20" };
-
   const fmtDate = (ts: number) => new Date(ts * 1000).toLocaleDateString("ru", { day: "2-digit", month: "short", year: "numeric" });
   const fmtTime = (ts: number) => {
     const diff = Date.now() / 1000 - ts;
@@ -211,8 +249,13 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           autoFocus
         />
         {authError && <p className="text-red-400 text-xs mb-3">{authError}</p>}
-        <button onClick={login} className="w-full grad-primary text-white rounded-xl py-3 font-bold text-sm glow-primary">
-          Войти
+        <button
+          onClick={login}
+          disabled={authLoading}
+          className="w-full grad-primary text-white rounded-xl py-3 font-bold text-sm glow-primary disabled:opacity-60 flex items-center justify-center gap-2"
+        >
+          {authLoading && <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+          {authLoading ? "Проверяем…" : "Войти"}
         </button>
       </div>
     </div>
@@ -250,19 +293,38 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
       <div className="flex-1 overflow-y-auto px-4 pb-8">
 
+        {apiError && (
+          <div className="mb-3 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2 animate-fade-in">
+            <Icon name="AlertCircle" size={15} />
+            <span className="flex-1">{apiError}</span>
+            <button onClick={() => setApiError("")} className="opacity-70 hover:opacity-100"><Icon name="X" size={13} /></button>
+          </div>
+        )}
+
+        {/* ── STATS skeleton ── */}
+        {tab === "stats" && !stats && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="glass rounded-2xl p-5 h-24 animate-pulse" />
+            <div className="grid grid-cols-3 gap-3">
+              {[0,1,2].map(i => <div key={i} className="glass rounded-2xl h-20 animate-pulse" />)}
+            </div>
+            <div className="glass rounded-2xl h-40 animate-pulse" />
+          </div>
+        )}
+
         {/* ── STATS ── */}
         {tab === "stats" && stats && (
           <div className="space-y-4 animate-fade-in">
 
             {/* Load card */}
-            <div className={`rounded-2xl border p-4 ${loadBg[stats.load.level as keyof typeof loadBg]}`}>
+            <div className={`rounded-2xl border p-4 ${LOAD_BG[stats.load.level] || LOAD_BG.low}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="font-bold text-sm">Текущая нагрузка</span>
-                <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full ${loadColor[stats.load.level as keyof typeof loadColor]} bg-white/5`}>
-                  {{ low: "низкая", medium: "средняя", high: "высокая" }[stats.load.level]}
+                <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full ${LOAD_COLOR[stats.load.level] || LOAD_COLOR.low} bg-white/5`}>
+                  {LOAD_LABEL[stats.load.level] || stats.load.level}
                 </span>
               </div>
-              <p className={`text-2xl font-black mb-1 ${loadColor[stats.load.level as keyof typeof loadColor]}`}>
+              <p className={`text-2xl font-black mb-1 ${LOAD_COLOR[stats.load.level] || LOAD_COLOR.low}`}>
                 {stats.load.msg_per_min} сообщ/мин
               </p>
               <p className="text-xs text-muted-foreground">{stats.load.tip}</p>

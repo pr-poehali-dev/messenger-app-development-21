@@ -14,6 +14,15 @@ import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
 
+// Магические числа/строки в одном месте
+const SCROLL_NEAR_BOTTOM_PX = 120;
+const SCROLL_SHOW_DOWN_PX = 200;
+const SCROLL_RESET_NEW_PX = 50;
+const TYPING_THROTTLE_MS = 3000;
+const MEDIA_PLACEHOLDERS = ["📷 Фото", "🎥 Видео", "🎵 Голосовое"] as const;
+const isMediaPlaceholder = (text: string) =>
+  (MEDIA_PLACEHOLDERS as readonly string[]).includes(text) || text.startsWith("📎");
+
 // ─── ChatWindow ───────────────────────────────────────────────────────────────
 
 export function ChatWindow({
@@ -78,6 +87,7 @@ export function ChatWindow({
         forwarded_from_user_id?: number | null;
         forwarded_from_name?: string | null;
         edited_at?: number | null;
+        kind?: "text" | "missed_call" | "system";
       }) => ({
         id: m.id,
         text: m.text,
@@ -86,6 +96,7 @@ export function ChatWindow({
         read: !!m.read_at,
         sender_id: m.sender_id,
         sender_name: m.sender_name,
+        kind: m.kind || "text",
         created_at: m.created_at,
         image_url: m.image_url,
         media_type: m.media_type as Message["media_type"],
@@ -144,7 +155,7 @@ export function ChatWindow({
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     // если близко к низу — авто-скроллим
-    if (distanceFromBottom < 120) {
+    if (distanceFromBottom < SCROLL_NEAR_BOTTOM_PX) {
       endRef.current?.scrollIntoView({ behavior: "smooth" });
       setNewCount(0);
     } else {
@@ -160,8 +171,8 @@ export function ChatWindow({
     const container = messagesScrollRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setShowScrollDown(distanceFromBottom > 200);
-    if (distanceFromBottom < 50) setNewCount(0);
+    setShowScrollDown(distanceFromBottom > SCROLL_SHOW_DOWN_PX);
+    if (distanceFromBottom < SCROLL_RESET_NEW_PX) setNewCount(0);
   };
 
   const scrollToBottom = () => {
@@ -170,9 +181,10 @@ export function ChatWindow({
   };
 
   const notifyTyping = () => {
+    // Не чаще одного запроса в 3 секунды
+    if (typingTimerRef.current) return;
     api("set_typing", { chat_id: chat.id }, currentUser.id);
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => {}, 3000);
+    typingTimerRef.current = setTimeout(() => { typingTimerRef.current = null; }, TYPING_THROTTLE_MS);
   };
 
   const send = async () => {
@@ -531,8 +543,29 @@ export function ChatWindow({
               );
             }
 
+            // Системные сообщения (например, пропущенный звонок)
+            if (msg.kind === "missed_call") {
+              const isCaller = msg.out;
+              nodes.push(
+                <div
+                  key={msg.id}
+                  id={`msg-${msg.id}`}
+                  className="flex justify-center my-2 animate-fade-in"
+                >
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full glass border border-red-500/25">
+                    <Icon name="PhoneMissed" size={13} className="text-red-400" />
+                    <span className="text-[12px] text-foreground">
+                      {isCaller ? "Звонок не принят" : "Пропущенный звонок"}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{msg.time}</span>
+                  </div>
+                </div>
+              );
+              return;
+            }
+
             const url = msg.text ? extractFirstUrl(msg.text) : null;
-            const showText = msg.text && msg.text !== "📷 Фото" && msg.text !== "🎥 Видео" && msg.text !== "🎵 Голосовое" && !msg.text.startsWith("📎");
+            const showText = !!msg.text && !isMediaPlaceholder(msg.text);
 
             nodes.push(
               <SwipeableMessage key={msg.id} out={msg.out} onReply={() => handleReply(msg.id)}>

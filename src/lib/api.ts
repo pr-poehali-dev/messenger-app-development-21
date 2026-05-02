@@ -96,6 +96,7 @@ export interface Message {
   read?: boolean;
   sender_id?: number;
   sender_name?: string;
+  kind?: "text" | "missed_call" | "system";
   created_at?: number;
   image_url?: string;
   media_type?: "image" | "video" | "audio" | "file";

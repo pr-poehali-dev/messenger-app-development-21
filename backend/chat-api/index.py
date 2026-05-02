@@ -215,7 +215,8 @@ def handler(event: dict, context) -> dict:
         cur.execute(
             f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
                        m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
-                       m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at
+                       m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at,
+                       COALESCE(m.kind, 'text')
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
@@ -276,6 +277,7 @@ def handler(event: dict, context) -> dict:
             "forwarded_from_user_id": r[13],
             "forwarded_from_name": r[14],
             "edited_at": r[15],
+            "kind": r[16] or "text",
             "reactions": reactions_map.get(r[0], []),
         } for r in rows]
         return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
@@ -729,6 +731,53 @@ def handler(event: dict, context) -> dict:
                     urllib.request.urlopen(req, timeout=5)
                 except Exception:
                     pass
+        elif signal_type in ("end", "decline", "cancel", "hangup"):
+            # Пропущенный звонок: если answer от вызываемого не было — создаём системное сообщение
+            cur.execute(
+                f"""SELECT 1 FROM {SCHEMA}.call_signals
+                    WHERE call_id = %s AND type = 'answer' LIMIT 1""",
+                (call_id,)
+            )
+            answered = cur.fetchone()
+            cur.execute(
+                f"""SELECT 1 FROM {SCHEMA}.messages
+                    WHERE kind = 'missed_call' AND text LIKE %s LIMIT 1""",
+                (f"%{call_id}%",)
+            )
+            already = cur.fetchone()
+            if not answered and not already:
+                # Определяем from/to и chat
+                cur.execute(
+                    f"""SELECT MIN(from_user_id), MIN(to_user_id) FROM {SCHEMA}.call_signals
+                        WHERE call_id = %s AND type = 'offer'""",
+                    (call_id,)
+                )
+                fromto = cur.fetchone()
+                caller_id = (fromto and fromto[0]) or int(user_id)
+                callee_id = (fromto and fromto[1]) or int(to_user_id)
+                u1, u2 = sorted([int(caller_id), int(callee_id)])
+                cur.execute(
+                    f"""INSERT INTO {SCHEMA}.chats (user1_id, user2_id, created_at)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (user1_id, user2_id) DO UPDATE SET user1_id = EXCLUDED.user1_id
+                        RETURNING id""",
+                    (u1, u2, now)
+                )
+                chat_row = cur.fetchone()
+                if chat_row:
+                    miss_chat_id = chat_row[0]
+                    miss_text = f"Пропущенный звонок [{call_id}]"
+                    cur.execute(
+                        f"""INSERT INTO {SCHEMA}.messages
+                            (chat_id, sender_id, text, created_at, kind)
+                            VALUES (%s, %s, %s, %s, 'missed_call')""",
+                        (miss_chat_id, int(caller_id), miss_text, now)
+                    )
+                    cur.execute(
+                        f"UPDATE {SCHEMA}.chats SET last_message = %s, last_message_at = %s WHERE id = %s",
+                        ("📵 Пропущенный звонок", now, miss_chat_id)
+                    )
+            conn.close()
         else:
             conn.close()
         return ok({"ok": True})
