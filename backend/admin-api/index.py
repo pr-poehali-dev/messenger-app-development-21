@@ -286,5 +286,19 @@ def handler(event: dict, context) -> dict:
 
         return ok({"ok": True, "msg_id": msg_id, "chat_id": chat_id})
 
+    # ── clear_test_data — обезличить всех пользователей (имя, аватар, телефон) ──
+    if action == "clear_test_data":
+        cur.execute(
+            f"""UPDATE {SCHEMA}.users
+                SET name = '',
+                    avatar_url = NULL,
+                    last_seen = 0,
+                    phone = 'cleared_' || id::text"""
+        )
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users")
+        cleared = cur.fetchone()[0]
+        conn.close()
+        return ok({"ok": True, "cleared": cleared})
+
     conn.close()
     return err("Неизвестный action")

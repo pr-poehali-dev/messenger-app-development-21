@@ -44,6 +44,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [showMessage, setShowMessage] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [messageSending, setMessageSending] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearResult, setClearResult] = useState<string | null>(null);
 
   const login = async () => {
     setAuthError("");
@@ -110,6 +113,22 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     setUsers(prev => prev.filter(u => u.id !== confirmDelete));
     setSelectedUser(null);
     setConfirmDelete(null);
+  };
+
+  const runClearTestData = async () => {
+    setClearing(true);
+    setClearResult(null);
+    const data = await adminApi("clear_test_data", {}, token);
+    setClearing(false);
+    setConfirmClear(false);
+    if (data.ok) {
+      setClearResult(`Обезличено пользователей: ${data.cleared}`);
+      setUsers([]);
+      loadStats();
+      setTimeout(() => setClearResult(null), 4000);
+    } else {
+      setClearResult("Ошибка: " + (data.error || "не удалось"));
+    }
   };
 
   const loadColor = { low: "text-emerald-400", medium: "text-amber-400", high: "text-red-400" };
@@ -254,6 +273,53 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                 {stats.load.level === "medium" && <p>• Следи за ростом. При увеличении нагрузки в 2× — время масштабироваться.</p>}
                 {stats.load.level === "high" && <p>• Срочно: добавь кэш Redis или увеличь timeout функций.</p>}
               </div>
+            </div>
+
+            {/* Danger zone */}
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
+              <h3 className="font-bold text-sm mb-1 flex items-center gap-2 text-red-400">
+                <Icon name="TriangleAlert" size={15} /> Опасная зона
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Очистит имена, аватары, телефоны и last_seen у всех пользователей. Аккаунты не удаляются — но при следующем входе по номеру создадутся как новые.
+              </p>
+              {clearResult && (
+                <div className="text-xs px-3 py-2 mb-3 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  {clearResult}
+                </div>
+              )}
+              {!confirmClear ? (
+                <button
+                  onClick={() => setConfirmClear(true)}
+                  className="w-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 rounded-xl py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <Icon name="Eraser" size={15} /> Очистить тестовые данные
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-red-300">Точно? Действие необратимо.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={runClearTestData}
+                      disabled={clearing}
+                      className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                    >
+                      {clearing ? (
+                        <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Очищаю...</>
+                      ) : (
+                        <>Да, обезличить всех</>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setConfirmClear(false)}
+                      disabled={clearing}
+                      className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
