@@ -47,6 +47,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<string | null>(null);
+  const [confirmClearMsgs, setConfirmClearMsgs] = useState(false);
+  const [clearingMsgs, setClearingMsgs] = useState(false);
+  const [clearMsgsResult, setClearMsgsResult] = useState<string | null>(null);
 
   const login = async () => {
     setAuthError("");
@@ -128,6 +131,21 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       setTimeout(() => setClearResult(null), 4000);
     } else {
       setClearResult("Ошибка: " + (data.error || "не удалось"));
+    }
+  };
+
+  const runClearAllMessages = async () => {
+    setClearingMsgs(true);
+    setClearMsgsResult(null);
+    const data = await adminApi("clear_all_messages", {}, token);
+    setClearingMsgs(false);
+    setConfirmClearMsgs(false);
+    if (data.ok) {
+      setClearMsgsResult(`Очищено сообщений: ${data.cleared_messages}`);
+      loadStats();
+      setTimeout(() => setClearMsgsResult(null), 4000);
+    } else {
+      setClearMsgsResult("Ошибка: " + (data.error || "не удалось"));
     }
   };
 
@@ -293,7 +311,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                   onClick={() => setConfirmClear(true)}
                   className="w-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 rounded-xl py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                 >
-                  <Icon name="Eraser" size={15} /> Очистить тестовые данные
+                  <Icon name="Eraser" size={15} /> Очистить пользователей
                 </button>
               ) : (
                 <div className="space-y-2">
@@ -320,6 +338,47 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
               )}
+
+              {/* Очистка сообщений */}
+              <div className="mt-3 pt-3 border-t border-red-500/20">
+                {clearMsgsResult && (
+                  <div className="text-xs px-3 py-2 mb-2 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                    {clearMsgsResult}
+                  </div>
+                )}
+                {!confirmClearMsgs ? (
+                  <button
+                    onClick={() => setConfirmClearMsgs(true)}
+                    className="w-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 rounded-xl py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Icon name="MessageSquareX" size={15} fallback="Trash2" /> Очистить все сообщения
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-red-300">Удалит все сообщения у всех чатов. Точно?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={runClearAllMessages}
+                        disabled={clearingMsgs}
+                        className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                      >
+                        {clearingMsgs ? (
+                          <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Очищаю...</>
+                        ) : (
+                          <>Да, удалить все сообщения</>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setConfirmClearMsgs(false)}
+                        disabled={clearingMsgs}
+                        className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

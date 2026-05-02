@@ -300,5 +300,30 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True, "cleared": cleared})
 
+    # ── clear_all_messages — обнулить все сообщения и превью чатов ─────────────
+    if action == "clear_all_messages":
+        now = int(time.time())
+        cur.execute(
+            f"""UPDATE {SCHEMA}.messages
+                SET removed_at = %s,
+                    text = '',
+                    media_url = NULL,
+                    media_type = NULL,
+                    image_url = NULL,
+                    file_name = NULL,
+                    file_size = NULL,
+                    duration = NULL,
+                    reply_to_id = NULL
+                WHERE removed_at IS NULL""",
+            (now,)
+        )
+        cleared_msgs = cur.rowcount
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message = '', last_message_at = 0"
+        )
+        cur.execute(f"UPDATE {SCHEMA}.message_reactions SET emoji = '__removed__'")
+        conn.close()
+        return ok({"ok": True, "cleared_messages": cleared_msgs})
+
     conn.close()
     return err("Неизвестный action")
