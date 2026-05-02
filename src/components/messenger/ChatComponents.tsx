@@ -540,7 +540,7 @@ export function ChatWindow({
                   style={{ animationDelay: `${Math.min(i, 10) * 0.03}s` }}
                 >
                   <div
-                    className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
+                    className={`max-w-[72%] w-fit min-w-[60px] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
                       msg.out
                         ? "msg-bubble-out text-white rounded-tr-sm"
                         : "msg-bubble-in text-foreground rounded-tl-sm"
@@ -575,7 +575,7 @@ export function ChatWindow({
                       </div>
                     )}
                     {showText && (
-                      <p className="px-4 py-2.5 whitespace-pre-wrap break-words">
+                      <p className="px-4 py-2.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         <LinkifiedText text={msg.text} out={msg.out} />
                       </p>
                     )}
