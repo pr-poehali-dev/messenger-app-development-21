@@ -41,6 +41,15 @@ export function ChatHeader({
   onBlock: () => void;
   onToggleArchive: () => void;
 }) {
+  const headerHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startHeaderHold = () => {
+    if (headerHoldTimer.current) clearTimeout(headerHoldTimer.current);
+    headerHoldTimer.current = setTimeout(() => setShowMenu(true), 450);
+  };
+  const cancelHeaderHold = () => {
+    if (headerHoldTimer.current) { clearTimeout(headerHoldTimer.current); headerHoldTimer.current = null; }
+  };
+
   if (showSearch) {
     return (
       <div className="flex items-center gap-2 px-3 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
@@ -80,26 +89,37 @@ export function ChatHeader({
   ];
 
   return (
-    <div className="flex items-center gap-3 px-4 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
+    <div className="flex items-center gap-3 px-4 glass-strong border-b border-white/5 relative" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
       <button onClick={onBack} className="md:hidden p-2 rounded-xl hover:bg-white/8 transition-colors">
         <Icon name="ChevronLeft" size={20} />
       </button>
-      <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-foreground truncate">{chat.name}</span>
-          {chat.muted && <Icon name="BellOff" size={12} className="text-muted-foreground flex-shrink-0" />}
-          {chat.pinned && <Icon name="Pin" size={12} className="text-violet-400 flex-shrink-0" />}
-          {chat.group && <span className="text-[10px] bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full font-medium">группа</span>}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {chat.typing ? (
-            <span className="text-violet-400">печатает сообщение...</span>
-          ) : chat.online ? (
-            <span className="text-emerald-400">в сети</span>
-          ) : (
-            "был(а) недавно"
-          )}
+      <div
+        className="flex-1 flex items-center gap-3 min-w-0 select-none cursor-pointer"
+        onMouseDown={startHeaderHold}
+        onMouseUp={cancelHeaderHold}
+        onMouseLeave={cancelHeaderHold}
+        onTouchStart={startHeaderHold}
+        onTouchEnd={cancelHeaderHold}
+        onTouchCancel={cancelHeaderHold}
+        onContextMenu={(e) => { e.preventDefault(); setShowMenu(true); }}
+      >
+        <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-foreground truncate">{chat.name}</span>
+            {chat.muted && <Icon name="BellOff" size={12} className="text-muted-foreground flex-shrink-0" />}
+            {chat.pinned && <Icon name="Pin" size={12} className="text-violet-400 flex-shrink-0" />}
+            {chat.group && <span className="text-[10px] bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full font-medium">группа</span>}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {chat.typing ? (
+              <span className="text-violet-400">печатает сообщение...</span>
+            ) : chat.online ? (
+              <span className="text-emerald-400">в сети</span>
+            ) : (
+              "был(а) недавно"
+            )}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-1">
@@ -115,33 +135,25 @@ export function ChatHeader({
         >
           <Icon name="Video" size={18} />
         </button>
-        <div className="relative">
-          <button
-            onClick={() => setShowMenu(v => !v)}
-            className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
-          >
-            <Icon name="MoreVertical" size={18} />
-          </button>
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-10 z-50 glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[230px] animate-scale-in">
-                {menuItems.map(item => (
-                  <button
-                    key={item.label}
-                    onClick={() => { setShowMenu(false); item.onClick(); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/8 transition-colors text-sm ${item.red ? "text-red-400 hover:bg-red-500/10" : ""} ${item.active ? "text-violet-400" : ""}`}
-                  >
-                    <Icon name={item.icon} size={16} className={item.red ? "text-red-400" : item.active ? "text-violet-400" : "text-muted-foreground"} />
-                    <span className="text-left flex-1">{item.label}</span>
-                    {item.active && <Icon name="Check" size={14} className="text-violet-400" />}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
       </div>
+      {showMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+          <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+3.5rem)] z-50 glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[230px] animate-scale-in">
+            {menuItems.map(item => (
+              <button
+                key={item.label}
+                onClick={() => { setShowMenu(false); item.onClick(); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/8 transition-colors text-sm ${item.red ? "text-red-400 hover:bg-red-500/10" : ""} ${item.active ? "text-violet-400" : ""}`}
+              >
+                <Icon name={item.icon} size={16} className={item.red ? "text-red-400" : item.active ? "text-violet-400" : "text-muted-foreground"} />
+                <span className="text-left flex-1">{item.label}</span>
+                {item.active && <Icon name="Check" size={14} className="text-violet-400" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

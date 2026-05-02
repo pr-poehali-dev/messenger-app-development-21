@@ -540,7 +540,7 @@ export function ChatWindow({
                   style={{ animationDelay: `${Math.min(i, 10) * 0.03}s` }}
                 >
                   <div
-                    className={`max-w-[72%] w-fit min-w-[60px] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
+                    className={`relative max-w-[72%] w-fit min-w-[60px] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
                       msg.out
                         ? "msg-bubble-out text-white rounded-tr-sm"
                         : "msg-bubble-in text-foreground rounded-tl-sm"
@@ -575,8 +575,10 @@ export function ChatWindow({
                       </div>
                     )}
                     {showText && (
-                      <p className="px-4 py-2.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      <p className="px-3 pt-2 pb-1.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         <LinkifiedText text={msg.text} out={msg.out} />
+                        {/* Время «в строку» — невидимый плейсхолдер, чтобы под ним хватало места */}
+                        <span className="inline-block w-[52px] h-[1px] align-baseline" aria-hidden />
                       </p>
                     )}
                     {url && showText && (
@@ -598,13 +600,13 @@ export function ChatWindow({
                         </div>
                       </a>
                     )}
-                    <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
+                    <div className={`absolute bottom-1 right-2 flex items-center gap-1 pointer-events-none ${showText ? "" : "px-2 pb-1 relative bottom-auto right-auto justify-end"}`}>
                       {msg.edited_at && (
-                        <span className={`text-[10px] italic ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>изменено</span>
+                        <span className={`text-[10px] italic ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>изменено</span>
                       )}
-                      <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
+                      <span className={`text-[10px] ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>{msg.time}</span>
                       {msg.out && (
-                        <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
+                        <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/60"} />
                       )}
                     </div>
                   </div>
