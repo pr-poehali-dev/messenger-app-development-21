@@ -12,7 +12,7 @@ import {
   saveCustomRingtone, getCustomRingtoneMeta, clearCustomRingtone,
   type RingtoneId, type NotifyId,
 } from "@/lib/sounds";
-import { applyTheme, applyFontSize, getStoredTheme, getStoredFontSize, type ThemeId } from "@/lib/theme";
+import { applyTheme, applyFontSize, getStoredTheme, getStoredFontSize, THEMES_META, type ThemeId } from "@/lib/theme";
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;        // 5 МБ
 const MAX_RINGTONE_SIZE = 10 * 1024 * 1024;     // 10 МБ
@@ -424,15 +424,19 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
               </button>
             </div>
             <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Тема</div>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {(["dark", "midnight", "violet"] as const).map(t => (
+            <div className="grid grid-cols-4 gap-2 mb-4">
+              {THEMES_META.map(t => (
                 <button
-                  key={t}
-                  onClick={() => { setTheme(t); applyTheme(t); }}
-                  className={`p-3 rounded-xl border-2 transition-all ${theme === t ? "border-violet-500 bg-violet-500/10" : "border-white/10 hover:border-white/20"}`}
+                  key={t.id}
+                  onClick={() => { setTheme(t.id); applyTheme(t.id); }}
+                  className={`relative p-2 rounded-xl border-2 transition-all ${theme === t.id ? "border-violet-500 bg-violet-500/10" : "border-white/10 hover:border-white/20"}`}
+                  title={t.name}
                 >
-                  <div className={`w-full h-8 rounded-lg mb-2 ${t === "dark" ? "bg-gradient-to-br from-zinc-900 to-zinc-800" : t === "midnight" ? "bg-gradient-to-br from-slate-900 to-indigo-950" : "bg-gradient-to-br from-violet-900 to-fuchsia-900"}`} />
-                  <div className="text-[11px] font-medium capitalize">{t === "dark" ? "Тёмная" : t === "midnight" ? "Полночь" : "Фиолет"}</div>
+                  {t.pro && (
+                    <span className="absolute -top-1 -right-1 text-[9px] px-1 py-0.5 rounded-md bg-amber-500 text-white font-bold leading-none shadow">PRO</span>
+                  )}
+                  <div className={`w-full h-8 rounded-lg mb-1.5 bg-gradient-to-br ${t.preview}`} />
+                  <div className="text-[10px] font-medium leading-tight">{t.name}</div>
                 </button>
               ))}
             </div>
@@ -753,6 +757,40 @@ export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBa
             ))}
           </div>
         </div>
+
+        <button
+          onClick={async () => {
+            try {
+              const chats = await api("get_chats", {}, currentUser.id);
+              const out: { exported_at: string; user: { id: number; name: string; phone: string }; chats: unknown[] } = {
+                exported_at: new Date().toISOString(),
+                user: { id: currentUser.id, name: currentUser.name, phone: currentUser.phone },
+                chats: [],
+              };
+              for (const ch of (chats.chats || [])) {
+                const msgs = await api("get_messages", { chat_id: ch.id, since: 0 }, currentUser.id);
+                out.chats.push({ chat: ch, messages: msgs.messages || [] });
+              }
+              const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `nova_backup_${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch { /* ignore */ }
+          }}
+          className="w-full flex items-center gap-3 px-4 py-3 glass rounded-2xl hover:bg-white/5 transition-all mt-2"
+        >
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/15 flex items-center justify-center">
+            <Icon name="Download" size={18} className="text-emerald-400" />
+          </div>
+          <div className="flex-1 text-left">
+            <div className="text-sm font-medium">Резервная копия</div>
+            <div className="text-xs text-muted-foreground">Скачать все чаты в файл JSON</div>
+          </div>
+          <Icon name="ChevronRight" size={16} className="text-muted-foreground ml-auto" />
+        </button>
 
         <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 glass rounded-2xl hover:bg-red-500/10 transition-all mt-2">
           <div className="w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center">

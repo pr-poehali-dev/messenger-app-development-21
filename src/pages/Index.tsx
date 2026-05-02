@@ -8,6 +8,8 @@ import { ContactsPanel } from "@/components/messenger/ContactsPanel";
 import { CallScreen } from "@/components/messenger/CallScreen";
 import { AdminPanel } from "@/components/messenger/AdminPanel";
 import InstallPrompt from "@/components/messenger/InstallPrompt";
+import ComingSoon from "@/components/messenger/ComingSoon";
+import { ChatFolders, filterChatsByFolder, useChatFolder } from "@/components/messenger/ChatFolders";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -41,6 +43,8 @@ export default function Index() {
   const [showPro, setShowPro] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
+  const [chatFolder, setChatFolder] = useChatFolder();
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   // Push-подписка
   useEffect(() => {
@@ -296,6 +300,9 @@ export default function Index() {
       {/* PWA install prompt */}
       <InstallPrompt />
 
+      {/* Coming soon */}
+      <ComingSoon open={showComingSoon} onClose={() => setShowComingSoon(false)} />
+
       {/* ── Sidebar ── */}
       <aside
         className={`
@@ -325,6 +332,14 @@ export default function Index() {
             >
               <Icon name="Crown" size={12} />
               Pro
+            </button>
+            {/* Скоро */}
+            <button
+              onClick={() => setShowComingSoon(true)}
+              className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-violet-400"
+              title="Скоро в Nova"
+            >
+              <Icon name="Sparkles" size={18} />
             </button>
             {/* Dev Panel */}
             <button
@@ -392,8 +407,14 @@ export default function Index() {
                   <Icon name="ChevronRight" size={16} className="text-muted-foreground" />
                 </button>
               )}
+              {!showArchived && (
+                <ChatFolders folder={chatFolder} onChange={setChatFolder} chats={realChats} />
+              )}
               <ChatList
-                chats={realChats.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))}
+                chats={filterChatsByFolder(
+                  realChats.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())),
+                  chatFolder,
+                )}
                 onSelect={handleSelectChat}
                 selectedId={selectedChat?.id}
               />
@@ -401,11 +422,19 @@ export default function Index() {
           )}
           {activeTab === "stories" && (
             <div className="flex-1 flex flex-col items-center justify-center py-16 text-center px-8">
-              <div className="w-16 h-16 glass rounded-3xl flex items-center justify-center mb-4">
-                <Icon name="Circle" size={28} className="text-violet-400" />
+              <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mb-4 glow-primary">
+                <Icon name="Sparkles" size={32} className="text-white" />
               </div>
-              <p className="font-semibold mb-1">Историй пока нет</p>
-              <p className="text-sm text-muted-foreground">Скоро здесь появятся истории твоих контактов</p>
+              <p className="font-bold text-lg mb-1">Истории — в разработке</p>
+              <p className="text-sm text-muted-foreground mb-4 max-w-xs">
+                Скоро здесь появятся реальные истории твоих контактов с просмотрами, реакциями и приватностью.
+              </p>
+              <button
+                onClick={() => setShowComingSoon(true)}
+                className="px-5 py-2.5 rounded-2xl grad-primary text-white font-semibold text-sm hover:opacity-90"
+              >
+                Что ещё в работе
+              </button>
             </div>
           )}
         </div>

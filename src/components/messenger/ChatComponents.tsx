@@ -5,6 +5,7 @@ import { playMessageSound } from "@/lib/sounds";
 import { MediaMessage, ReactionBar } from "@/components/messenger/ChatMediaMessage";
 import { type MediaItem } from "@/components/messenger/MediaViewer";
 import { ChatHeader, ContextMenu, ChatInput } from "@/components/messenger/ChatWindowParts";
+import VideoCircleRecorder from "@/components/messenger/VideoCircleRecorder";
 import { TypingIndicator } from "@/components/messenger/ChatAtoms";
 import { SwipeableMessage } from "@/components/messenger/SwipeableMessage";
 import { formatDateLabel, dayKey } from "@/components/messenger/dateGroup";
@@ -59,6 +60,7 @@ export function ChatWindow({
   const [isTyping, setIsTyping] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSec, setRecordSec] = useState(0);
+  const [showVideoCircle, setShowVideoCircle] = useState(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -702,6 +704,7 @@ export function ChatWindow({
         onStartRecording={startRecording}
         onStopRecording={stopRecording}
         onFileChange={sendFile}
+        onVideoCircle={() => { setShowAttach(false); setShowVideoCircle(true); }}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
         editing={editing}
@@ -717,6 +720,13 @@ export function ChatWindow({
           onClose={() => setForwardMsgId(null)}
         />
       )}
+
+      {/* Video circle recorder */}
+      <VideoCircleRecorder
+        open={showVideoCircle}
+        onClose={() => setShowVideoCircle(false)}
+        onRecorded={(file) => sendFile(file)}
+      />
     </div>
   );
 }

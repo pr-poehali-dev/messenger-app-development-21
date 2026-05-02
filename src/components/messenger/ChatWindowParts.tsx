@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { type Chat, type Message, type User, type IconName } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatAtoms";
 import { QUICK_REACTIONS } from "@/components/messenger/ChatMediaMessage";
+import EmojiStickerPicker from "@/components/messenger/EmojiStickerPicker";
 
 // ─── ChatHeader ───────────────────────────────────────────────────────────────
 
@@ -305,6 +306,7 @@ export function ChatInput({
   onStartRecording,
   onStopRecording,
   onFileChange,
+  onVideoCircle,
   replyTo,
   onCancelReply,
   editing,
@@ -324,13 +326,15 @@ export function ChatInput({
   onStartRecording: () => void;
   onStopRecording: () => void;
   onFileChange: (file: File) => void;
+  onVideoCircle?: () => void;
   replyTo?: Message | null;
   onCancelReply?: () => void;
   editing?: Message | null;
   onCancelEdit?: () => void;
 }) {
+  const [showEmoji, setShowEmoji] = useState(false);
   return (
-    <div className="px-4 py-3 glass-strong border-t border-white/5" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+    <div className="px-4 py-3 glass-strong border-t border-white/5 relative" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
       <input
         ref={fileInputRef}
         type="file"
@@ -358,7 +362,7 @@ export function ChatInput({
         </div>
       )}
       {showAttach && (
-        <div className="grid grid-cols-4 gap-2 mb-3 animate-fade-in">
+        <div className="grid grid-cols-5 gap-2 mb-3 animate-fade-in">
           {[
             { icon: "Image", label: "Фото", color: "text-violet-400", mime: "image/*" },
             { icon: "Video", label: "Видео", color: "text-sky-400", mime: "video/*" },
@@ -379,6 +383,15 @@ export function ChatInput({
               <span className="text-[10px] text-muted-foreground">{item.label}</span>
             </button>
           ))}
+          {onVideoCircle && (
+            <button
+              onClick={onVideoCircle}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name="Video" size={20} className="text-rose-400" />
+              <span className="text-[10px] text-muted-foreground">Кружок</span>
+            </button>
+          )}
         </div>
       )}
       {uploading && (
@@ -414,9 +427,19 @@ export function ChatInput({
             rows={1}
             className="flex-1 bg-transparent outline-none text-sm text-foreground placeholder-muted-foreground resize-none max-h-32"
           />
-          <button className="text-muted-foreground hover:text-foreground transition-colors">
-            <Icon name="Smile" size={20} />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowEmoji(v => !v)}
+              className={`transition-colors ${showEmoji ? "text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Icon name="Smile" size={20} />
+            </button>
+            <EmojiStickerPicker
+              open={showEmoji}
+              onClose={() => setShowEmoji(false)}
+              onPick={(e) => setInput(input + e)}
+            />
+          </div>
         </div>
         {input.trim() ? (
           <button
