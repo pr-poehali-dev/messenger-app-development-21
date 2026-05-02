@@ -22,6 +22,7 @@ export function ChatHeader({
   onToggleFavorite,
   onClearHistory,
   onBlock,
+  onToggleArchive,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -38,6 +39,7 @@ export function ChatHeader({
   onToggleFavorite: () => void;
   onClearHistory: () => void;
   onBlock: () => void;
+  onToggleArchive: () => void;
 }) {
   if (showSearch) {
     return (
@@ -72,6 +74,7 @@ export function ChatHeader({
     { icon: chat.muted ? "BellOff" : "Bell", label: chat.muted ? "Включить уведомления" : "Отключить уведомления", active: chat.muted, onClick: onToggleMute },
     { icon: "Pin", label: chat.pinned ? "Открепить" : "Закрепить", active: chat.pinned, onClick: onTogglePin },
     { icon: "Star", label: chat.favorite ? "Убрать из избранного" : "В избранное", active: chat.favorite, onClick: onToggleFavorite },
+    { icon: "Archive", label: chat.archived ? "Из архива" : "В архив", active: chat.archived, onClick: onToggleArchive },
     { icon: "Trash2", label: "Очистить историю", red: true, onClick: onClearHistory },
     { icon: "Ban", label: "Заблокировать", red: true, onClick: onBlock },
   ];
@@ -151,19 +154,32 @@ export function ContextMenu({
   onClose,
   onReact,
   onDelete,
+  onReply,
+  onForward,
+  onEdit,
+  onPin,
+  isPinned,
 }: {
   ctxMenu: { msgId: number; out: boolean };
   messages: Message[];
   onClose: () => void;
   onReact: (msgId: number, emoji: string) => void;
   onDelete: (msgId: number) => void;
+  onReply: (msgId: number) => void;
+  onForward: (msgId: number) => void;
+  onEdit: (msgId: number) => void;
+  onPin: (msgId: number) => void;
+  isPinned: boolean;
 }) {
+  const msg = messages.find(m => m.id === ctxMenu.msgId);
+  const canEdit = ctxMenu.out && msg && (!msg.media_type || msg.media_type === "image") && msg.text && !msg.text.startsWith("📷") && !msg.text.startsWith("🎥") && !msg.text.startsWith("🎵") && !msg.text.startsWith("📎");
+
   return (
     <div
       className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
       onClick={onClose}
     >
-      <div className="glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[200px] animate-scale-in" onClick={e => e.stopPropagation()}>
+      <div className="glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[220px] animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="flex gap-1 px-4 py-3 border-b border-white/5">
           {QUICK_REACTIONS.map(emoji => (
             <button
@@ -176,12 +192,41 @@ export function ContextMenu({
           ))}
         </div>
         <button
+          onClick={() => onReply(ctxMenu.msgId)}
+          className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/8 transition-colors text-sm"
+        >
+          <Icon name="Reply" size={16} className="text-muted-foreground" />
+          Ответить
+        </button>
+        <button
+          onClick={() => onForward(ctxMenu.msgId)}
+          className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/8 transition-colors text-sm"
+        >
+          <Icon name="Forward" size={16} className="text-muted-foreground" />
+          Переслать
+        </button>
+        {canEdit && (
+          <button
+            onClick={() => onEdit(ctxMenu.msgId)}
+            className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/8 transition-colors text-sm"
+          >
+            <Icon name="Pencil" size={16} className="text-muted-foreground" />
+            Изменить
+          </button>
+        )}
+        <button
+          onClick={() => onPin(ctxMenu.msgId)}
+          className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/8 transition-colors text-sm"
+        >
+          <Icon name={isPinned ? "PinOff" : "Pin"} size={16} className="text-muted-foreground" />
+          {isPinned ? "Открепить" : "Закрепить"}
+        </button>
+        <button
           onClick={() => {
-            const msg = messages.find(m => m.id === ctxMenu.msgId);
             if (msg?.text) navigator.clipboard.writeText(msg.text);
             onClose();
           }}
-          className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-white/8 transition-colors text-sm"
+          className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/8 transition-colors text-sm"
         >
           <Icon name="Copy" size={16} className="text-muted-foreground" />
           Копировать
@@ -189,19 +234,12 @@ export function ContextMenu({
         {ctxMenu.out && (
           <button
             onClick={() => onDelete(ctxMenu.msgId)}
-            className="w-full flex items-center gap-3 px-5 py-3.5 text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium"
+            className="w-full flex items-center gap-3 px-5 py-3 text-red-400 hover:bg-red-500/10 transition-colors text-sm font-medium border-t border-white/5"
           >
             <Icon name="Trash2" size={16} />
             Удалить сообщение
           </button>
         )}
-        <button
-          onClick={onClose}
-          className="w-full flex items-center gap-3 px-5 py-3.5 text-muted-foreground hover:bg-white/8 transition-colors text-sm"
-        >
-          <Icon name="X" size={16} />
-          Отмена
-        </button>
       </div>
     </div>
   );
@@ -224,6 +262,10 @@ export function ChatInput({
   onStartRecording,
   onStopRecording,
   onFileChange,
+  replyTo,
+  onCancelReply,
+  editing,
+  onCancelEdit,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -239,6 +281,10 @@ export function ChatInput({
   onStartRecording: () => void;
   onStopRecording: () => void;
   onFileChange: (file: File) => void;
+  replyTo?: Message | null;
+  onCancelReply?: () => void;
+  editing?: Message | null;
+  onCancelEdit?: () => void;
 }) {
   return (
     <div className="px-4 py-3 glass-strong border-t border-white/5" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
@@ -249,6 +295,25 @@ export function ChatInput({
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(f); e.target.value = ""; }}
       />
+      {(replyTo || editing) && (
+        <div className="flex items-center gap-3 mb-2 px-3 py-2 glass rounded-xl animate-fade-in border-l-2 border-violet-400">
+          <Icon name={editing ? "Pencil" : "Reply"} size={16} className="text-violet-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-violet-400 font-medium">
+              {editing ? "Редактирование" : `Ответ ${replyTo?.sender_name || ""}`}
+            </div>
+            <div className="text-xs text-muted-foreground truncate">
+              {(editing?.text || replyTo?.text || "[медиа]").slice(0, 80)}
+            </div>
+          </div>
+          <button
+            onClick={() => { onCancelReply?.(); onCancelEdit?.(); }}
+            className="p-1 rounded-lg hover:bg-white/8 text-muted-foreground hover:text-foreground"
+          >
+            <Icon name="X" size={16} />
+          </button>
+        </div>
+      )}
       {showAttach && (
         <div className="grid grid-cols-4 gap-2 mb-3 animate-fade-in">
           {[

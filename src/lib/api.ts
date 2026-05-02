@@ -81,6 +81,13 @@ export interface Reaction {
   user_id: number;
 }
 
+export interface ReplyPreview {
+  id: number;
+  sender_name: string;
+  text: string;
+  media_type?: string;
+}
+
 export interface Message {
   id: number;
   text: string;
@@ -88,6 +95,7 @@ export interface Message {
   out: boolean;
   read?: boolean;
   sender_id?: number;
+  sender_name?: string;
   created_at?: number;
   image_url?: string;
   media_type?: "image" | "video" | "audio" | "file";
@@ -96,6 +104,10 @@ export interface Message {
   file_size?: number;
   duration?: number;
   reactions?: Reaction[];
+  reply_to?: ReplyPreview | null;
+  forwarded_from_user_id?: number | null;
+  forwarded_from_name?: string | null;
+  edited_at?: number | null;
 }
 
 export interface Chat {
@@ -112,6 +124,7 @@ export interface Chat {
   pinned?: boolean;
   muted?: boolean;
   favorite?: boolean;
+  archived?: boolean;
   partner_id?: number;
 }
 

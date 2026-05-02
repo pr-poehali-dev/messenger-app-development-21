@@ -30,6 +30,11 @@ export function ChatWindow({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [confirm, setConfirm] = useState<null | { title: string; text: string; danger?: boolean; action: () => void | Promise<void>; }>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [forwardMsgId, setForwardMsgId] = useState<number | null>(null);
+  const [pinnedMsg, setPinnedMsg] = useState<{ id: number; sender_name: string; text: string; media_type?: string } | null>(null);
+  const [highlightId, setHighlightId] = useState<number | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [lastSince, setLastSince] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -50,10 +55,14 @@ export function ChatWindow({
     const data = await api("get_messages", { chat_id: chat.id, since }, currentUser.id);
     if (data.messages && data.messages.length > 0) {
       const mapped: Message[] = data.messages.map((m: {
-        id: number; text: string; created_at: number; sender_id: number; read_at?: number;
+        id: number; text: string; created_at: number; sender_id: number; sender_name?: string; read_at?: number;
         image_url?: string; media_type?: string; media_url?: string;
         file_name?: string; file_size?: number; duration?: number;
         reactions?: Reaction[];
+        reply_to?: { id: number; sender_name: string; text: string; media_type?: string } | null;
+        forwarded_from_user_id?: number | null;
+        forwarded_from_name?: string | null;
+        edited_at?: number | null;
       }) => ({
         id: m.id,
         text: m.text,
@@ -61,6 +70,7 @@ export function ChatWindow({
         out: m.sender_id === currentUser.id,
         read: !!m.read_at,
         sender_id: m.sender_id,
+        sender_name: m.sender_name,
         created_at: m.created_at,
         image_url: m.image_url,
         media_type: m.media_type as Message["media_type"],
@@ -69,6 +79,10 @@ export function ChatWindow({
         file_size: m.file_size,
         duration: m.duration,
         reactions: m.reactions || [],
+        reply_to: m.reply_to || null,
+        forwarded_from_user_id: m.forwarded_from_user_id || null,
+        forwarded_from_name: m.forwarded_from_name || null,
+        edited_at: m.edited_at || null,
       }));
       if (since === 0) {
         setMessages(mapped);
@@ -124,10 +138,28 @@ export function ChatWindow({
     if (!input.trim()) return;
     const text = input.trim();
     setInput("");
-    const data = await api("send_message", { chat_id: chat.id, text }, currentUser.id);
+
+    // edit-режим
+    if (editing) {
+      const editId = editing.id;
+      setEditing(null);
+      await api("edit_message", { message_id: editId, text }, currentUser.id);
+      setMessages(prev => prev.map(m => m.id === editId ? { ...m, text, edited_at: Math.floor(Date.now() / 1000) } : m));
+      return;
+    }
+
+    const replyId = replyTo?.id;
+    const replyPreview = replyTo ? { id: replyTo.id, sender_name: replyTo.sender_name || (replyTo.out ? "Вы" : chat.name), text: replyTo.text, media_type: replyTo.media_type } : null;
+    setReplyTo(null);
+
+    const data = await api("send_message", {
+      chat_id: chat.id,
+      text,
+      reply_to_id: replyId,
+    }, currentUser.id);
     if (data.id) {
       const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-      setMessages(prev => [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at, reactions: [] }]);
+      setMessages(prev => [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at, reactions: [], reply_to: replyPreview }]);
       setLastSince(data.created_at);
     }
   };
@@ -254,6 +286,64 @@ export function ChatWindow({
     });
   };
 
+  // ── Reply / Forward / Edit / Pin ──
+  const handleReply = (msgId: number) => {
+    const m = messages.find(x => x.id === msgId);
+    if (m) {
+      setReplyTo({ ...m, sender_name: m.out ? "Вы" : (m.sender_name || chat.name) });
+      setEditing(null);
+      setCtxMenu(null);
+    }
+  };
+
+  const handleEdit = (msgId: number) => {
+    const m = messages.find(x => x.id === msgId);
+    if (m) {
+      setEditing(m);
+      setReplyTo(null);
+      setInput(m.text);
+      setCtxMenu(null);
+    }
+  };
+
+  const handleForward = (msgId: number) => {
+    setForwardMsgId(msgId);
+    setCtxMenu(null);
+  };
+
+  const handlePinToggle = async (msgId: number) => {
+    setCtxMenu(null);
+    if (pinnedMsg?.id === msgId) {
+      setPinnedMsg(null);
+      await api("unpin_message", { chat_id: chat.id }, currentUser.id);
+    } else {
+      const m = messages.find(x => x.id === msgId);
+      if (m) {
+        setPinnedMsg({ id: m.id, sender_name: m.out ? "Вы" : (m.sender_name || chat.name), text: m.text, media_type: m.media_type });
+      }
+      await api("pin_message", { chat_id: chat.id, message_id: msgId }, currentUser.id);
+    }
+  };
+
+  const scrollToMessage = (msgId: number) => {
+    const el = document.getElementById(`msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightId(msgId);
+      setTimeout(() => setHighlightId(null), 1500);
+    }
+  };
+
+  // Загружаем pinned при смене чата
+  useEffect(() => {
+    let cancel = false;
+    api("get_pinned_message", { chat_id: chat.id }, currentUser.id).then(data => {
+      if (cancel) return;
+      setPinnedMsg(data.pinned || null);
+    });
+    return () => { cancel = true; };
+  }, [chat.id, currentUser.id]);
+
   const handleBlock = () => {
     if (!chat.partner_id) return;
     setConfirm({
@@ -266,6 +356,13 @@ export function ChatWindow({
         onBack();
       },
     });
+  };
+
+  const handleToggleArchive = async () => {
+    const next = !chat.archived;
+    await api("archive_chat", { chat_id: chat.id, archived: next }, currentUser.id);
+    onChatDeleted?.();
+    onBack();
   };
 
   const filteredMessages = searchQuery.trim()
@@ -290,6 +387,7 @@ export function ChatWindow({
         onToggleFavorite={handleToggleFavorite}
         onClearHistory={handleClearHistory}
         onBlock={handleBlock}
+        onToggleArchive={handleToggleArchive}
       />
 
       {confirm && (
@@ -327,7 +425,34 @@ export function ChatWindow({
           onClose={() => { setCtxMenu(null); setShowReactionPicker(null); }}
           onReact={addReaction}
           onDelete={deleteMessage}
+          onReply={handleReply}
+          onForward={handleForward}
+          onEdit={handleEdit}
+          onPin={handlePinToggle}
+          isPinned={pinnedMsg?.id === ctxMenu.msgId}
         />
+      )}
+
+      {/* Pinned message bar */}
+      {pinnedMsg && (
+        <button
+          onClick={() => scrollToMessage(pinnedMsg.id)}
+          className="flex items-center gap-3 px-4 py-2 glass border-b border-white/5 w-full text-left hover:bg-white/5 transition-colors"
+        >
+          <Icon name="Pin" size={14} className="text-violet-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0 border-l-2 border-violet-400 pl-3">
+            <div className="text-[11px] text-violet-400 font-medium">Закреплённое сообщение</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {pinnedMsg.text || (pinnedMsg.media_type === "image" ? "📷 Фото" : pinnedMsg.media_type === "video" ? "🎥 Видео" : "[медиа]")}
+            </div>
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); handlePinToggle(pinnedMsg.id); }}
+            className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground"
+          >
+            <Icon name="X" size={14} />
+          </button>
+        </button>
       )}
 
       {/* Messages */}
@@ -346,15 +471,16 @@ export function ChatWindow({
             return (
               <div
                 key={msg.id}
-                className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in`}
+                id={`msg-${msg.id}`}
+                className={`flex flex-col ${msg.out ? "items-end" : "items-start"} animate-fade-in transition-all ${highlightId === msg.id ? "scale-[1.02]" : ""}`}
                 style={{ animationDelay: `${i * 0.04}s` }}
               >
                 <div
-                  className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none ${
+                  className={`max-w-[72%] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
                     msg.out
                       ? "msg-bubble-out text-white rounded-tr-sm"
                       : "msg-bubble-in text-foreground rounded-tl-sm"
-                  }`}
+                  } ${highlightId === msg.id ? "ring-2 ring-violet-400" : ""}`}
                   onMouseDown={() => startHold(msg.id, msg.out)}
                   onMouseUp={cancelHold}
                   onMouseLeave={cancelHold}
@@ -362,6 +488,27 @@ export function ChatWindow({
                   onTouchEnd={cancelHold}
                   onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
                 >
+                  {/* Forwarded label */}
+                  {msg.forwarded_from_name && (
+                    <div className={`px-4 pt-2 pb-0.5 text-[11px] font-medium ${msg.out ? "text-white/80" : "text-violet-400"} flex items-center gap-1`}>
+                      <Icon name="Forward" size={11} />
+                      Переслано от {msg.forwarded_from_name}
+                    </div>
+                  )}
+                  {/* Reply preview */}
+                  {msg.reply_to && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); scrollToMessage(msg.reply_to!.id); }}
+                      className={`block w-full text-left mx-1 mt-1 px-3 py-1.5 rounded-lg border-l-2 ${msg.out ? "bg-white/15 border-white" : "bg-violet-500/15 border-violet-400"}`}
+                    >
+                      <div className={`text-[11px] font-medium ${msg.out ? "text-white" : "text-violet-400"}`}>
+                        {msg.reply_to.sender_name}
+                      </div>
+                      <div className={`text-xs truncate ${msg.out ? "text-white/80" : "text-muted-foreground"}`}>
+                        {msg.reply_to.text || (msg.reply_to.media_type === "image" ? "📷 Фото" : msg.reply_to.media_type === "video" ? "🎥 Видео" : "[медиа]")}
+                      </div>
+                    </button>
+                  )}
                   {(msg.media_url || msg.image_url) && (
                     <div className="p-1.5">
                       <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} out={msg.out} />
@@ -371,6 +518,9 @@ export function ChatWindow({
                     <p className="px-4 py-2.5">{msg.text}</p>
                   )}
                   <div className={`flex items-center gap-1 px-4 pb-2 pt-1 ${msg.out ? "justify-end" : "justify-start"}`}>
+                    {msg.edited_at && (
+                      <span className={`text-[10px] italic ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>изменено</span>
+                    )}
                     <span className={`text-[10px] ${msg.out ? "text-white/60" : "text-muted-foreground"}`}>{msg.time}</span>
                     {msg.out && (
                       <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/50"} />
@@ -414,7 +564,115 @@ export function ChatWindow({
         onStartRecording={startRecording}
         onStopRecording={stopRecording}
         onFileChange={sendFile}
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+        editing={editing}
+        onCancelEdit={() => { setEditing(null); setInput(""); }}
       />
+
+      {/* Forward dialog */}
+      {forwardMsgId !== null && (
+        <ForwardDialog
+          messageId={forwardMsgId}
+          currentUser={currentUser}
+          currentChatId={chat.id}
+          onClose={() => setForwardMsgId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── ForwardDialog ────────────────────────────────────────────────────────────
+
+function ForwardDialog({
+  messageId,
+  currentUser,
+  currentChatId,
+  onClose,
+}: {
+  messageId: number;
+  currentUser: User;
+  currentChatId: number;
+  onClose: () => void;
+}) {
+  const [chats, setChats] = useState<Array<{ id: number; name: string; avatar: string }>>([]);
+  const [query, setQuery] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sentTo, setSentTo] = useState<number | null>(null);
+
+  useEffect(() => {
+    api("get_chats", {}, currentUser.id).then((data) => {
+      if (data.chats) {
+        setChats(data.chats
+          .filter((c: { id: number }) => c.id !== currentChatId)
+          .map((c: { id: number; partner: { name: string } }) => ({
+            id: c.id,
+            name: c.partner.name,
+            avatar: c.partner.name[0]?.toUpperCase() || "?",
+          })));
+      }
+    });
+  }, [currentUser.id, currentChatId]);
+
+  const filtered = query.trim()
+    ? chats.filter(c => c.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : chats;
+
+  const send = async (chatId: number) => {
+    setSending(true);
+    await api("forward_message", { message_id: messageId, target_chat_id: chatId }, currentUser.id);
+    setSentTo(chatId);
+    setTimeout(onClose, 600);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] bg-black/60 flex items-end md:items-center justify-center animate-fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="glass-strong rounded-t-3xl md:rounded-3xl w-full max-w-md max-h-[80vh] flex flex-col animate-scale-in"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+          <h3 className="font-semibold">Переслать в чат</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/8 text-muted-foreground">
+            <Icon name="X" size={18} />
+          </button>
+        </div>
+        <div className="px-4 py-3 border-b border-white/5">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5">
+            <Icon name="Search" size={16} className="text-muted-foreground" />
+            <input
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Поиск чата..."
+              className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {filtered.length === 0 && (
+            <div className="text-center text-sm text-muted-foreground py-8">Нет чатов</div>
+          )}
+          {filtered.map(c => (
+            <button
+              key={c.id}
+              disabled={sending}
+              onClick={() => send(c.id)}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/8 transition-colors disabled:opacity-50 ${sentTo === c.id ? "bg-emerald-500/10" : ""}`}
+            >
+              <div className="w-10 h-10 rounded-full grad-primary flex items-center justify-center font-semibold text-white">
+                {c.avatar}
+              </div>
+              <span className="flex-1 text-left font-medium">{c.name}</span>
+              {sentTo === c.id && <Icon name="Check" size={18} className="text-emerald-400" />}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

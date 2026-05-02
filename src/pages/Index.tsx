@@ -38,6 +38,8 @@ export default function Index() {
   const [activeCall, setActiveCall] = useState<{ userId: number; name: string; callId: string; incoming: boolean } | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPro, setShowPro] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
 
   // Push-подписка
   useEffect(() => {
@@ -77,7 +79,8 @@ export default function Index() {
   useEffect(() => {
     if (!currentUser) return;
     const loadChats = async () => {
-      const data = await api("get_chats", {}, currentUser.id);
+      const data = await api("get_chats", { archived: showArchived }, currentUser.id);
+      if (typeof data.archived_count === "number") setArchivedCount(data.archived_count);
       if (data.chats) {
         const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number; muted?: boolean; pinned?: boolean; favorite?: boolean }) => ({
           id: c.id,
@@ -103,7 +106,7 @@ export default function Index() {
     loadChats();
     const interval = setInterval(loadChats, 5000);
     return () => clearInterval(interval);
-  }, [currentUser]);
+  }, [currentUser, showArchived]);
 
   // Загрузка пользователей для поиска
   useEffect(() => {
@@ -340,6 +343,30 @@ export default function Index() {
           {activeTab === "chats" && (
             <>
               <StoriesBar onView={setViewingStory} />
+              {showArchived && (
+                <button
+                  onClick={() => setShowArchived(false)}
+                  className="flex items-center gap-3 px-4 py-3 mx-2 rounded-2xl hover:bg-white/5 transition-colors"
+                >
+                  <Icon name="ChevronLeft" size={18} className="text-muted-foreground" />
+                  <span className="text-sm font-medium">Назад к чатам</span>
+                </button>
+              )}
+              {!showArchived && archivedCount > 0 && (
+                <button
+                  onClick={() => setShowArchived(true)}
+                  className="flex items-center gap-3 px-4 py-3 mx-2 rounded-2xl hover:bg-white/5 transition-colors animate-fade-in"
+                >
+                  <div className="w-11 h-11 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                    <Icon name="Archive" size={18} className="text-violet-400" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <div className="font-semibold text-sm">Архив</div>
+                    <div className="text-xs text-muted-foreground">{archivedCount} {archivedCount === 1 ? "чат" : archivedCount < 5 ? "чата" : "чатов"}</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} className="text-muted-foreground" />
+                </button>
+              )}
               <ChatList
                 chats={realChats.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))}
                 onSelect={handleSelectChat}

@@ -109,13 +109,15 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             conn.close()
             return err("Нужен X-User-Id")
+        archived_flag = str(body.get("archived") or params.get("archived") or "").lower() in ("1", "true")
         cur.execute(
             f"""SELECT c.id, c.last_message, c.last_message_at,
                        u.id, u.name, u.phone, u.avatar_url, u.last_seen,
                        COALESCE(cs.muted, FALSE),
                        COALESCE(cs.pinned, FALSE),
                        COALESCE(cs.favorite, FALSE),
-                       COALESCE(cs.cleared_at, 0)
+                       COALESCE(cs.cleared_at, 0),
+                       COALESCE(cs.archived, FALSE)
                 FROM {SCHEMA}.chats c
                 JOIN {SCHEMA}.users u ON (
                     CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END = u.id
@@ -126,9 +128,10 @@ def handler(event: dict, context) -> dict:
                   AND u.id NOT IN (
                       SELECT blocked_id FROM {SCHEMA}.user_blocks WHERE blocker_id = %s
                   )
+                  AND COALESCE(cs.archived, FALSE) = %s
                 ORDER BY COALESCE(cs.pinned, FALSE) DESC,
                          c.last_message_at DESC NULLS LAST""",
-            (int(user_id), int(user_id), int(user_id), int(user_id), int(user_id))
+            (int(user_id), int(user_id), int(user_id), int(user_id), int(user_id), archived_flag)
         )
         rows = cur.fetchall()
 
@@ -150,14 +153,24 @@ def handler(event: dict, context) -> dict:
             for r in cur.fetchall():
                 unread_map[r[0]] = r[1]
 
-        conn.close()
         chats = [{
             "id": r[0], "last_message": r[1], "last_message_at": r[2],
             "partner": {"id": r[3], "name": r[4], "phone": r[5], "avatar_url": r[6], "last_seen": r[7]},
             "unread": unread_map.get(r[0], 0),
-            "muted": r[8], "pinned": r[9], "favorite": r[10], "cleared_at": r[11],
+            "muted": r[8], "pinned": r[9], "favorite": r[10], "cleared_at": r[11], "archived": r[12],
         } for r in rows]
-        return ok({"chats": chats})
+
+        # количество архивированных (для бэйджа)
+        cur.execute(
+            f"""SELECT COUNT(*) FROM {SCHEMA}.chat_settings cs
+                JOIN {SCHEMA}.chats c ON c.id = cs.chat_id
+                WHERE cs.user_id = %s AND cs.archived = TRUE
+                  AND (c.user1_id = %s OR c.user2_id = %s)""",
+            (int(user_id), int(user_id), int(user_id))
+        )
+        archived_count = cur.fetchone()[0] or 0
+        conn.close()
+        return ok({"chats": chats, "archived_count": archived_count})
 
     # ── get_or_create_chat ────────────────────────────────────────────────────
     if action == "get_or_create_chat":
@@ -201,7 +214,8 @@ def handler(event: dict, context) -> dict:
 
         cur.execute(
             f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
-                       m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration
+                       m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
+                       m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s
@@ -209,6 +223,21 @@ def handler(event: dict, context) -> dict:
             (int(chat_id), effective_since)
         )
         rows = cur.fetchall()
+
+        # Подгружаем краткую инфу для reply_to (id, sender_name, text)
+        reply_map = {}
+        reply_ids = [r[12] for r in rows if r[12]]
+        if reply_ids:
+            placeholders = ",".join(["%s"] * len(reply_ids))
+            cur.execute(
+                f"""SELECT m.id, u.name, m.text, m.media_type
+                    FROM {SCHEMA}.messages m
+                    JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                    WHERE m.id IN ({placeholders})""",
+                reply_ids
+            )
+            for rr in cur.fetchall():
+                reply_map[rr[0]] = {"id": rr[0], "sender_name": rr[1], "text": rr[2], "media_type": rr[3]}
 
         # Получаем реакции для этих сообщений
         reactions_map = {}
@@ -235,6 +264,10 @@ def handler(event: dict, context) -> dict:
             "image_url": r[6],
             "media_type": r[7], "media_url": r[8],
             "file_name": r[9], "file_size": r[10], "duration": r[11],
+            "reply_to": reply_map.get(r[12]) if r[12] else None,
+            "forwarded_from_user_id": r[13],
+            "forwarded_from_name": r[14],
+            "edited_at": r[15],
             "reactions": reactions_map.get(r[0], []),
         } for r in rows]
         return ok({"messages": messages, "now": int(time.time())})
@@ -247,11 +280,14 @@ def handler(event: dict, context) -> dict:
         chat_id = body.get("chat_id")
         text = (body.get("text") or "").strip()
         image_url = (body.get("image_url") or "").strip()
-        media_type = (body.get("media_type") or "").strip()  # image, video, audio, file
+        media_type = (body.get("media_type") or "").strip()
         media_url = (body.get("media_url") or "").strip()
         file_name = (body.get("file_name") or "").strip() or None
         file_size = body.get("file_size") or None
         duration = body.get("duration") or None
+        reply_to_id = body.get("reply_to_id") or None
+        forwarded_from_user_id = body.get("forwarded_from_user_id") or None
+        forwarded_from_name = (body.get("forwarded_from_name") or "").strip() or None
 
         # Совместимость: image_url → media
         if image_url and not media_url:
@@ -270,12 +306,16 @@ def handler(event: dict, context) -> dict:
         now = int(time.time())
         cur.execute(
             f"""INSERT INTO {SCHEMA}.messages
-                (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at,
+                 reply_to_id, forwarded_from_user_id, forwarded_from_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (int(chat_id), int(user_id), text,
              media_url if media_type == "image" else None,
              media_type or None, media_url or None,
-             file_name, file_size, duration, now)
+             file_name, file_size, duration, now,
+             int(reply_to_id) if reply_to_id else None,
+             int(forwarded_from_user_id) if forwarded_from_user_id else None,
+             forwarded_from_name)
         )
         msg_id = cur.fetchone()[0]
         cur.execute(
@@ -738,6 +778,160 @@ def handler(event: dict, context) -> dict:
             "created_at": r[4], "sender_name": r[5],
             "media_type": r[6], "media_url": r[7], "file_name": r[8],
         } for r in rows]})
+
+    # ── edit_message ──────────────────────────────────────────────────────────
+    if action == "edit_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        msg_id = body.get("message_id")
+        new_text = (body.get("text") or "").strip()
+        if not msg_id or not new_text:
+            conn.close()
+            return err("Укажите message_id и text")
+        cur.execute(
+            f"SELECT sender_id, chat_id FROM {SCHEMA}.messages WHERE id = %s",
+            (int(msg_id),)
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return err("Сообщение не найдено", 404)
+        if int(row[0]) != int(user_id):
+            conn.close()
+            return err("Можно редактировать только свои сообщения", 403)
+        now = int(time.time())
+        cur.execute(
+            f"UPDATE {SCHEMA}.messages SET text = %s, edited_at = %s WHERE id = %s",
+            (new_text, now, int(msg_id))
+        )
+        # обновим last_message в чате если это последнее сообщение
+        cur.execute(
+            f"""SELECT id FROM {SCHEMA}.messages WHERE chat_id = %s
+                ORDER BY created_at DESC LIMIT 1""",
+            (int(row[1]),)
+        )
+        last = cur.fetchone()
+        if last and int(last[0]) == int(msg_id):
+            cur.execute(
+                f"UPDATE {SCHEMA}.chats SET last_message = %s WHERE id = %s",
+                (new_text[:100], int(row[1]))
+            )
+        conn.close()
+        return ok({"ok": True, "edited_at": now})
+
+    # ── pin_message / unpin_message / get_pinned ──────────────────────────────
+    if action == "pin_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        msg_id = body.get("message_id")
+        chat_id = body.get("chat_id")
+        if not msg_id or not chat_id:
+            conn.close()
+            return err("Укажите message_id и chat_id")
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET pinned_message_id = %s WHERE id = %s",
+            (int(msg_id), int(chat_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "unpin_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET pinned_message_id = NULL WHERE id = %s",
+            (int(chat_id),)
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "get_pinned_message":
+        chat_id = body.get("chat_id") or params.get("chat_id")
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        cur.execute(
+            f"""SELECT m.id, m.sender_id, u.name, m.text, m.media_type, m.created_at
+                FROM {SCHEMA}.chats c
+                JOIN {SCHEMA}.messages m ON m.id = c.pinned_message_id
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE c.id = %s""",
+            (int(chat_id),)
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return ok({"pinned": None})
+        return ok({"pinned": {
+            "id": row[0], "sender_id": row[1], "sender_name": row[2],
+            "text": row[3], "media_type": row[4], "created_at": row[5],
+        }})
+
+    # ── archive_chat / unarchive_chat ─────────────────────────────────────────
+    if action == "archive_chat":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        archived = bool(body.get("archived", True))
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chat_settings (user_id, chat_id, archived)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, chat_id) DO UPDATE SET archived = EXCLUDED.archived""",
+            (int(user_id), int(chat_id), archived)
+        )
+        conn.close()
+        return ok({"ok": True, "archived": archived})
+
+    # ── forward_message (создаёт новое сообщение в указанном чате) ────────────
+    if action == "forward_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        src_id = body.get("message_id")
+        target_chat_id = body.get("target_chat_id")
+        if not src_id or not target_chat_id:
+            conn.close()
+            return err("Укажите message_id и target_chat_id")
+        cur.execute(
+            f"""SELECT m.text, m.media_type, m.media_url, m.image_url, m.file_name, m.file_size,
+                       m.duration, m.sender_id, u.name
+                FROM {SCHEMA}.messages m
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE m.id = %s""",
+            (int(src_id),)
+        )
+        s = cur.fetchone()
+        if not s:
+            conn.close()
+            return err("Сообщение не найдено", 404)
+        text, m_type, m_url, img_url, f_name, f_size, dur, orig_sender, orig_name = s
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages
+                (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at,
+                 forwarded_from_user_id, forwarded_from_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (int(target_chat_id), int(user_id), text or "", img_url, m_type, m_url, f_name, f_size, dur, now,
+             int(orig_sender), orig_name)
+        )
+        new_id = cur.fetchone()[0]
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message = %s, last_message_at = %s WHERE id = %s",
+            ((text or "[медиа]")[:100], now, int(target_chat_id))
+        )
+        conn.close()
+        return ok({"id": new_id, "created_at": now})
 
     conn.close()
     return err("Неизвестный action")
