@@ -51,14 +51,21 @@ export function StoryViewer({ story, onClose }: { story: Story; onClose: () => v
 
 // ─── SearchPanel ──────────────────────────────────────────────────────────────
 
-export function SearchPanel({ users, currentUser, onStartChat }: { users: User[]; currentUser: User; onStartChat: (id: number) => void }) {
+export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users: User[]; currentUser: User; onStartChat: (id: number) => void; onBack?: () => void }) {
   const [query, setQuery] = useState("");
   const results = users.filter(u => !query || u.name.toLowerCase().includes(query.toLowerCase()) || u.phone.includes(query));
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
-      <div className="px-4 pt-4 pb-3">
-        <h2 className="text-xl font-bold mb-3">Поиск</h2>
+      <div className="px-4 pt-4 pb-3" style={{ paddingTop: "calc(1rem + env(safe-area-inset-top))" }}>
+        <div className="flex items-center gap-2 mb-3">
+          {onBack && (
+            <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-xl hover:bg-white/8 transition-colors">
+              <Icon name="ChevronLeft" size={20} />
+            </button>
+          )}
+          <h2 className="text-xl font-bold">Поиск</h2>
+        </div>
         <div className="flex items-center gap-3 glass rounded-2xl px-4 py-3">
           <Icon name="Search" size={18} className="text-muted-foreground flex-shrink-0" />
           <input
@@ -110,7 +117,7 @@ export function SearchPanel({ users, currentUser, onStartChat }: { users: User[]
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void }) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
   const [saving, setSaving] = useState(false);
@@ -136,8 +143,16 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate }: { onSett
 
   return (
     <div className="flex flex-col h-full animate-fade-in overflow-y-auto">
+      {onBack && (
+        <div className="md:hidden px-3 pt-3 flex items-center" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
+          <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/8 transition-colors">
+            <Icon name="ChevronLeft" size={20} />
+          </button>
+          <span className="text-sm text-muted-foreground ml-1">Назад</span>
+        </div>
+      )}
       {/* Hero */}
-      <div className="relative px-6 pt-8 pb-6 text-center">
+      <div className="relative px-6 pt-4 pb-6 text-center">
         <div className="relative inline-block mb-4">
           <div className="w-24 h-24 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-4xl font-bold text-white animate-pulse-glow">
             {currentUser.name[0]?.toUpperCase() || "Я"}
@@ -245,7 +260,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate }: { onSett
 
 // ─── SettingsPanel ────────────────────────────────────────────────────────────
 
-export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
+export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBack?: () => void }) {
   const [e2e, setE2e] = useState(true);
   const [twofa, setTwofa] = useState(false);
   const [biometric, setBiometric] = useState(true);
@@ -260,9 +275,16 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="flex flex-col h-full animate-fade-in overflow-y-auto">
-      <div className="px-6 pt-6 pb-4">
-        <h2 className="text-xl font-bold mb-1">Безопасность</h2>
-        <p className="text-sm text-muted-foreground">Управление защитой аккаунта</p>
+      <div className="px-4 pt-4 pb-4 flex items-start gap-2" style={{ paddingTop: "calc(1rem + env(safe-area-inset-top))" }}>
+        {onBack && (
+          <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-xl hover:bg-white/8 transition-colors flex-shrink-0">
+            <Icon name="ChevronLeft" size={20} />
+          </button>
+        )}
+        <div className="flex-1 min-w-0">
+          <h2 className="text-xl font-bold mb-1">Безопасность</h2>
+          <p className="text-sm text-muted-foreground">Управление защитой аккаунта</p>
+        </div>
       </div>
 
       <div className="mx-4 mb-4 glass rounded-2xl p-4 border border-violet-500/20">

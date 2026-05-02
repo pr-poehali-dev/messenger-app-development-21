@@ -446,13 +446,13 @@ export default function Index() {
             }}
           />
         ) : view === "search" ? (
-          <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} />
+          <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} onBack={() => { setView("chats"); setShowSidebar(true); }} />
         ) : view === "contacts" ? (
-          <ContactsPanel currentUser={currentUser} onStartChat={(chat) => { setSelectedChat(chat); setShowSidebar(false); }} onCall={startCall} />
+          <ContactsPanel currentUser={currentUser} onStartChat={(chat) => { setSelectedChat(chat); setShowSidebar(false); }} onCall={startCall} onBack={() => { setView("chats"); setShowSidebar(true); }} />
         ) : view === "profile" ? (
-          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} />
+          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} onBack={() => { setView("chats"); setShowSidebar(true); }} />
         ) : view === "settings" ? (
-          <SettingsPanel onLogout={logout} />
+          <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8 animate-fade-in">
             <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mb-6 glow-primary animate-float">

@@ -7,10 +7,12 @@ export function ContactsPanel({
   currentUser,
   onStartChat,
   onCall,
+  onBack,
 }: {
   currentUser: User;
   onStartChat: (chat: Chat) => void;
   onCall: (contact: Contact) => void;
+  onBack?: () => void;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,12 +82,19 @@ export function ContactsPanel({
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* Header */}
-      <div className="px-4 py-4 glass-strong border-b border-white/5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-bold">Контакты</h2>
+      <div className="px-4 py-4 glass-strong border-b border-white/5" style={{ paddingTop: "calc(1rem + env(safe-area-inset-top))" }}>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="flex items-center gap-1 min-w-0">
+            {onBack && (
+              <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-xl hover:bg-white/8 transition-colors flex-shrink-0">
+                <Icon name="ChevronLeft" size={20} />
+              </button>
+            )}
+            <h2 className="text-lg font-bold truncate">Контакты</h2>
+          </div>
           <button
             onClick={() => { setShowAdd(v => !v); setAddError(""); }}
-            className={`p-2 rounded-xl transition-all ${showAdd ? "grad-primary text-white" : "glass hover:bg-white/8 text-muted-foreground"}`}
+            className={`p-2 rounded-xl transition-all flex-shrink-0 ${showAdd ? "grad-primary text-white" : "glass hover:bg-white/8 text-muted-foreground"}`}
           >
             <Icon name={showAdd ? "X" : "UserPlus"} size={18} />
           </button>
