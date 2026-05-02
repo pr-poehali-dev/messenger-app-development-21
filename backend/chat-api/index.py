@@ -70,6 +70,23 @@ def handler(event: dict, context) -> dict:
         )
         row = cur.fetchone()
         conn.close()
+        # Push admin'у о новой регистрации
+        admin_id = os.environ.get("ADMIN_USER_ID", "").strip()
+        push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+        if admin_id and admin_id.isdigit() and push_url and int(admin_id) != row[0]:
+            try:
+                push_body = json.dumps({
+                    "action": "send",
+                    "recipient_id": int(admin_id),
+                    "title": "👤 Новая регистрация",
+                    "sender_name": "Nova",
+                    "message": f"{row[2]} ({row[1]}) присоединился к Nova",
+                    "tag": f"reg_{row[0]}",
+                }).encode("utf-8")
+                req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
         return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5]}})
 
     # ── get_me ────────────────────────────────────────────────────────────────

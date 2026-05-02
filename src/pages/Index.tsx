@@ -70,9 +70,27 @@ export default function Index() {
       }
     };
 
-    Notification.requestPermission().then((perm) => {
-      if (perm === "granted") subscribe();
-    });
+    // Если уже granted — подписываемся сразу. Иначе ждём первого пользовательского жеста,
+    // браузеры (особенно Safari) не дают вызвать requestPermission без тапа.
+    if (Notification.permission === "granted") {
+      subscribe();
+      return;
+    }
+    if (Notification.permission === "default") {
+      const onUserGesture = () => {
+        Notification.requestPermission().then((perm) => {
+          if (perm === "granted") subscribe();
+        });
+        window.removeEventListener("pointerdown", onUserGesture);
+        window.removeEventListener("keydown", onUserGesture);
+      };
+      window.addEventListener("pointerdown", onUserGesture, { once: true });
+      window.addEventListener("keydown", onUserGesture, { once: true });
+      return () => {
+        window.removeEventListener("pointerdown", onUserGesture);
+        window.removeEventListener("keydown", onUserGesture);
+      };
+    }
   }, [currentUser]);
 
   // Загрузка чатов

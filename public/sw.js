@@ -1,4 +1,4 @@
-const CACHE = "nova-v3";
+const CACHE = "nova-v4";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -44,26 +44,42 @@ self.addEventListener("push", (e) => {
     body: data.body || "Входящий звонок",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    vibrate: [500, 200, 500, 200, 500, 200, 500],
-    tag: data.tag || "call",
+    image: data.image,
+    vibrate: [500, 200, 500, 200, 500, 200, 500, 200, 500, 200, 500],
+    tag: data.tag || `call_${data.call_id}`,
     requireInteraction: true,
-    data: { call_id: data.call_id, is_call: true, url: "/" },
+    renotify: true,
+    silent: false,
+    timestamp: Date.now(),
+    data: { call_id: data.call_id, is_call: true, url: "/", from_name: data.from_name || data.title },
     actions: [
-      { action: "answer", title: "✅ Ответить" },
-      { action: "decline", title: "❌ Отклонить" },
+      { action: "answer", title: "Ответить" },
+      { action: "decline", title: "Отклонить" },
     ],
   } : {
     body: data.body || "Новое сообщение",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
     vibrate: [200, 100, 200],
-    tag: data.tag || `msg_${data.chat_id}`,
+    tag: data.tag || `msg_${data.chat_id || "x"}`,
+    renotify: true,
+    silent: false,
+    timestamp: Date.now(),
     data: { chat_id: data.chat_id, url: "/" },
-    actions: [{ action: "open", title: "Открыть" }],
   };
 
   e.waitUntil(
-    self.registration.showNotification(data.title || "Nova", options)
+    (async () => {
+      // Проверяем — если приложение уже открыто и видимо, не показываем системное уведомление
+      const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const visible = list.find((c) => c.visibilityState === "visible" && c.focused);
+      if (visible && !isCall) {
+        // Передадим в окно, пусть само рендерит in-app тост
+        visible.postMessage({ type: "in_app_message", chat_id: data.chat_id, body: options.body });
+        return;
+      }
+      await self.registration.showNotification(data.title || "Nova", options);
+    })()
   );
 });
 

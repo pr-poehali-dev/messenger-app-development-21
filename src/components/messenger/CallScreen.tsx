@@ -141,7 +141,9 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     };
 
     pc.ontrack = (e) => {
-      // Все треки от собеседника (audio + video) кладём в один stream
+      // Поток собеседника пошёл — рингтон/гудки больше не нужны
+      stopRingtone();
+      stopDialTone();
       const incoming = e.streams[0] || new MediaStream([e.track]);
       attachRemoteStream(incoming);
     };
@@ -213,13 +215,23 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
   };
 
   const acceptCall = async () => {
+    // Сразу глушим рингтон/гудки — иначе они забивают голос собеседника
+    stopRingtone();
+    stopDialTone();
     setState("calling");
     const pc = await initPC();
     if (!pc) return;
     pollSignals();
     // Жест пользователя — самое время разблокировать audio.play()
     if (remoteAudioRef.current) {
-      try { await remoteAudioRef.current.play(); } catch { /* ignore */ }
+      try {
+        remoteAudioRef.current.muted = false;
+        remoteAudioRef.current.volume = 1.0;
+        await remoteAudioRef.current.play();
+      } catch { /* ignore */ }
+    }
+    if (remoteVideoRef.current) {
+      try { remoteVideoRef.current.muted = false; await remoteVideoRef.current.play(); } catch { /* ignore */ }
     }
   };
 
