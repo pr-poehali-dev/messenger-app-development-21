@@ -300,6 +300,49 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True, "cleared": cleared})
 
+    # ── nuke_all — снести всё одной кнопкой (юзеры + сообщения + чаты) ────────
+    if action == "nuke_all":
+        now = int(time.time())
+        # 1. Сообщения
+        cur.execute(
+            f"""UPDATE {SCHEMA}.messages
+                SET removed_at = %s,
+                    text = '',
+                    media_url = NULL,
+                    media_type = NULL,
+                    image_url = NULL,
+                    file_name = NULL,
+                    file_size = NULL,
+                    duration = NULL,
+                    reply_to_id = NULL
+                WHERE removed_at IS NULL""",
+            (now,)
+        )
+        msgs_cleared = cur.rowcount
+        # 2. Реакции
+        cur.execute(f"UPDATE {SCHEMA}.message_reactions SET emoji = '__removed__'")
+        # 3. Превью чатов
+        cur.execute(f"UPDATE {SCHEMA}.chats SET last_message = '', last_message_at = 0")
+        # 4. Пользователи
+        cur.execute(
+            f"""UPDATE {SCHEMA}.users
+                SET name = '',
+                    avatar_url = NULL,
+                    last_seen = 0,
+                    phone = 'cleared_' || id::text"""
+        )
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users")
+        users_cleared = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.chats")
+        chats_cleared = cur.fetchone()[0]
+        conn.close()
+        return ok({
+            "ok": True,
+            "users": users_cleared,
+            "messages": msgs_cleared,
+            "chats": chats_cleared,
+        })
+
     # ── clear_all_messages — обнулить все сообщения и превью чатов ─────────────
     if action == "clear_all_messages":
         now = int(time.time())

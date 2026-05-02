@@ -50,6 +50,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [confirmClearMsgs, setConfirmClearMsgs] = useState(false);
   const [clearingMsgs, setClearingMsgs] = useState(false);
   const [clearMsgsResult, setClearMsgsResult] = useState<string | null>(null);
+  const [confirmNuke, setConfirmNuke] = useState(false);
+  const [nuking, setNuking] = useState(false);
+  const [nukeResult, setNukeResult] = useState<string | null>(null);
 
   const login = async () => {
     setAuthError("");
@@ -131,6 +134,22 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       setTimeout(() => setClearResult(null), 4000);
     } else {
       setClearResult("Ошибка: " + (data.error || "не удалось"));
+    }
+  };
+
+  const runNukeAll = async () => {
+    setNuking(true);
+    setNukeResult(null);
+    const data = await adminApi("nuke_all", {}, token);
+    setNuking(false);
+    setConfirmNuke(false);
+    if (data.ok) {
+      setNukeResult(`Снесено: ${data.users} юзеров, ${data.messages} сообщений, ${data.chats} чатов`);
+      setUsers([]);
+      loadStats();
+      setTimeout(() => setNukeResult(null), 6000);
+    } else {
+      setNukeResult("Ошибка: " + (data.error || "не удалось"));
     }
   };
 
@@ -301,6 +320,49 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               <p className="text-xs text-muted-foreground mb-3">
                 Очистит имена, аватары, телефоны и last_seen у всех пользователей. Аккаунты не удаляются — но при следующем входе по номеру создадутся как новые.
               </p>
+              {/* ☢️ Ядерная кнопка — снести всё */}
+              <div className="mb-3 pb-3 border-b border-red-500/20">
+                {nukeResult && (
+                  <div className="text-xs px-3 py-2 mb-2 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                    {nukeResult}
+                  </div>
+                )}
+                {!confirmNuke ? (
+                  <button
+                    onClick={() => setConfirmNuke(true)}
+                    className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white rounded-xl py-3 text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-500/30"
+                  >
+                    <Icon name="Bomb" size={16} fallback="TriangleAlert" /> Снести всё одной кнопкой
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-red-300">
+                      ☢️ Снесёт ВСЁ: пользователей, сообщения, чаты, реакции. Точно?
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={runNukeAll}
+                        disabled={nuking}
+                        className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-all flex items-center justify-center gap-2"
+                      >
+                        {nuking ? (
+                          <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Сношу...</>
+                        ) : (
+                          <>Да, снести всё</>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setConfirmNuke(false)}
+                        disabled={nuking}
+                        className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {clearResult && (
                 <div className="text-xs px-3 py-2 mb-3 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
                   {clearResult}
