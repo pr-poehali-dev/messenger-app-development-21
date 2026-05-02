@@ -68,7 +68,7 @@ def handler(event: dict, context) -> dict:
         aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
     )
     s3.put_object(Bucket="files", Key=key, Body=file_data, ContentType=mime)
-    cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/files/{key}"
+    cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
 
     return {
         "statusCode": 200,
