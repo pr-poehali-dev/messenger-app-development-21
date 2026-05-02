@@ -292,12 +292,12 @@ export function SettingsPanel({ onLogout }: { onLogout: () => void }) {
             <div className="w-9 h-9 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
               <Icon name={item.icon as IconName} size={18} className="text-violet-400" />
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{item.label}</span>
-                {item.badge && <span className="text-[9px] bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-full font-bold">{item.badge}</span>}
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-medium truncate">{item.label}</span>
+                {item.badge && <span className="text-[9px] bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">{item.badge}</span>}
               </div>
-              <div className="text-xs text-muted-foreground">{item.sub}</div>
+              <div className="text-xs text-muted-foreground truncate">{item.sub}</div>
             </div>
             <Toggle on={item.state} onToggle={item.toggle} />
           </div>

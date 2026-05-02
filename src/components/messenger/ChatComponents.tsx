@@ -577,8 +577,11 @@ export function ChatWindow({
                     {showText && (
                       <p className="px-3 pt-2 pb-1.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         <LinkifiedText text={msg.text} out={msg.out} />
-                        {/* Время «в строку» — невидимый плейсхолдер, чтобы под ним хватало места */}
-                        <span className="inline-block w-[52px] h-[1px] align-baseline" aria-hidden />
+                        <span
+                          className="inline-block h-[1px] align-baseline"
+                          style={{ width: (msg.edited_at ? 64 : 40) + (msg.out ? 14 : 0) }}
+                          aria-hidden
+                        />
                       </p>
                     )}
                     {url && showText && (
@@ -600,9 +603,9 @@ export function ChatWindow({
                         </div>
                       </a>
                     )}
-                    <div className={`absolute bottom-1 right-2 flex items-center gap-1 pointer-events-none ${showText ? "" : "px-2 pb-1 relative bottom-auto right-auto justify-end"}`}>
+                    <div className={`absolute bottom-1 right-2 flex items-center gap-0.5 pointer-events-none whitespace-nowrap ${showText ? "" : "px-2 pb-1 relative bottom-auto right-auto justify-end"}`}>
                       {msg.edited_at && (
-                        <span className={`text-[10px] italic ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>изменено</span>
+                        <span className={`text-[10px] italic ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>изм.</span>
                       )}
                       <span className={`text-[10px] ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>{msg.time}</span>
                       {msg.out && (

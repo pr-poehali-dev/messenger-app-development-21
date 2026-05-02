@@ -392,7 +392,13 @@ export default function Index() {
             return (
               <button
                 key={item.tab}
-                onClick={() => { setView(item.tab); setShowSidebar(true); setSelectedChat(null); }}
+                onClick={() => {
+                  setView(item.tab);
+                  setSelectedChat(null);
+                  // На мобильном для вкладок «профиль/настройки/поиск/контакты» показываем сразу контент,
+                  // а не сайдбар поверх. Сайдбар — только для «чатов».
+                  setShowSidebar(item.tab === "chats");
+                }}
                 className={`relative flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
                   view === item.tab && !selectedChat ? "text-violet-400" : "text-muted-foreground hover:text-foreground"
                 }`}
