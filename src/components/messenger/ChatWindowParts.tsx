@@ -13,6 +13,15 @@ export function ChatHeader({
   setShowMenu,
   onCall,
   onVideoCall,
+  searchQuery,
+  setSearchQuery,
+  showSearch,
+  setShowSearch,
+  onToggleMute,
+  onTogglePin,
+  onToggleFavorite,
+  onClearHistory,
+  onBlock,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -20,7 +29,53 @@ export function ChatHeader({
   setShowMenu: (v: boolean | ((prev: boolean) => boolean)) => void;
   onCall?: (partnerId: number, name: string) => void;
   onVideoCall?: (partnerId: number, name: string) => void;
+  searchQuery: string;
+  setSearchQuery: (v: string) => void;
+  showSearch: boolean;
+  setShowSearch: (v: boolean) => void;
+  onToggleMute: () => void;
+  onTogglePin: () => void;
+  onToggleFavorite: () => void;
+  onClearHistory: () => void;
+  onBlock: () => void;
 }) {
+  if (showSearch) {
+    return (
+      <div className="flex items-center gap-2 px-3 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
+        <button
+          onClick={() => { setShowSearch(false); setSearchQuery(""); }}
+          className="p-2 rounded-xl hover:bg-white/8 transition-colors"
+        >
+          <Icon name="ChevronLeft" size={20} />
+        </button>
+        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5">
+          <Icon name="Search" size={16} className="text-muted-foreground" />
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Поиск по чату..."
+            className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground">
+              <Icon name="X" size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const menuItems: Array<{ icon: IconName; label: string; red?: boolean; active?: boolean; onClick: () => void }> = [
+    { icon: "Search", label: "Поиск по чату", onClick: () => setShowSearch(true) },
+    { icon: chat.muted ? "BellOff" : "Bell", label: chat.muted ? "Включить уведомления" : "Отключить уведомления", active: chat.muted, onClick: onToggleMute },
+    { icon: "Pin", label: chat.pinned ? "Открепить" : "Закрепить", active: chat.pinned, onClick: onTogglePin },
+    { icon: "Star", label: chat.favorite ? "Убрать из избранного" : "В избранное", active: chat.favorite, onClick: onToggleFavorite },
+    { icon: "Trash2", label: "Очистить историю", red: true, onClick: onClearHistory },
+    { icon: "Ban", label: "Заблокировать", red: true, onClick: onBlock },
+  ];
+
   return (
     <div className="flex items-center gap-3 px-4 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
       <button onClick={onBack} className="md:hidden p-2 rounded-xl hover:bg-white/8 transition-colors">
@@ -29,7 +84,9 @@ export function ChatHeader({
       <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-foreground">{chat.name}</span>
+          <span className="font-semibold text-foreground truncate">{chat.name}</span>
+          {chat.muted && <Icon name="BellOff" size={12} className="text-muted-foreground flex-shrink-0" />}
+          {chat.pinned && <Icon name="Pin" size={12} className="text-violet-400 flex-shrink-0" />}
           {chat.group && <span className="text-[10px] bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full font-medium">группа</span>}
         </div>
         <div className="text-xs text-muted-foreground">
@@ -63,24 +120,22 @@ export function ChatHeader({
             <Icon name="MoreVertical" size={18} />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-10 z-50 glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[200px] animate-scale-in" onClick={() => setShowMenu(false)}>
-              {[
-                { icon: "Search", label: "Поиск по чату" },
-                { icon: "Bell", label: "Уведомления" },
-                { icon: "Pin", label: "Закреплённые" },
-                { icon: "Star", label: "Избранные" },
-                { icon: "Trash2", label: "Очистить историю", red: true },
-                { icon: "Ban", label: "Заблокировать", red: true },
-              ].map(item => (
-                <button
-                  key={item.icon}
-                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/8 transition-colors text-sm ${item.red ? "text-red-400 hover:bg-red-500/10" : ""}`}
-                >
-                  <Icon name={item.icon as IconName} size={16} className={item.red ? "text-red-400" : "text-muted-foreground"} />
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-0 top-10 z-50 glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[230px] animate-scale-in">
+                {menuItems.map(item => (
+                  <button
+                    key={item.label}
+                    onClick={() => { setShowMenu(false); item.onClick(); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/8 transition-colors text-sm ${item.red ? "text-red-400 hover:bg-red-500/10" : ""} ${item.active ? "text-violet-400" : ""}`}
+                  >
+                    <Icon name={item.icon} size={16} className={item.red ? "text-red-400" : item.active ? "text-violet-400" : "text-muted-foreground"} />
+                    <span className="text-left flex-1">{item.label}</span>
+                    {item.active && <Icon name="Check" size={14} className="text-violet-400" />}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -79,7 +79,7 @@ export default function Index() {
     const loadChats = async () => {
       const data = await api("get_chats", {}, currentUser.id);
       if (data.chats) {
-        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number }) => ({
+        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number; muted?: boolean; pinned?: boolean; favorite?: boolean }) => ({
           id: c.id,
           name: c.partner.name,
           avatar: c.partner.name[0]?.toUpperCase() || "?",
@@ -88,11 +88,14 @@ export default function Index() {
           unread: c.unread || 0,
           online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
           partner_id: c.partner.id,
+          muted: c.muted || false,
+          pinned: c.pinned || false,
+          favorite: c.favorite || false,
         }));
         // Обновляем только если реально что-то изменилось — иначе мигают ники
         setRealChats(prev => {
-          const prevStr = JSON.stringify(prev.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time })));
-          const nextStr = JSON.stringify(mapped.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time })));
+          const prevStr = JSON.stringify(prev.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time, muted: c.muted, pinned: c.pinned, favorite: c.favorite })));
+          const nextStr = JSON.stringify(mapped.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time, muted: c.muted, pinned: c.pinned, favorite: c.favorite })));
           return prevStr === nextStr ? prev : mapped;
         });
       }
@@ -399,6 +402,14 @@ export default function Index() {
             onVideoCall={(partnerId, name) => {
               const callId = `video_${currentUser.id}_${partnerId}_${Date.now()}`;
               setActiveCall({ userId: partnerId, name, callId, incoming: false });
+            }}
+            onChatUpdated={(updated) => {
+              setSelectedChat(updated);
+              setRealChats(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+            }}
+            onChatDeleted={() => {
+              setRealChats(prev => prev.filter(c => c.id !== selectedChat.id));
+              setSelectedChat(null);
             }}
           />
         ) : view === "search" ? (

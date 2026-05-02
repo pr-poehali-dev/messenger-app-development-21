@@ -110,6 +110,8 @@ export interface Chat {
   verified?: boolean;
   group?: boolean;
   pinned?: boolean;
+  muted?: boolean;
+  favorite?: boolean;
   partner_id?: number;
 }
 

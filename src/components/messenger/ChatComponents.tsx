@@ -13,18 +13,23 @@ export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/mess
 // ─── ChatWindow ───────────────────────────────────────────────────────────────
 
 export function ChatWindow({
-  chat, onBack, currentUser, onCall, onVideoCall
+  chat, onBack, currentUser, onCall, onVideoCall, onChatUpdated, onChatDeleted,
 }: {
   chat: Chat;
   onBack: () => void;
   currentUser: User;
   onCall?: (partnerId: number, name: string) => void;
   onVideoCall?: (partnerId: number, name: string) => void;
+  onChatUpdated?: (chat: Chat) => void;
+  onChatDeleted?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [showAttach, setShowAttach] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [confirm, setConfirm] = useState<null | { title: string; text: string; danger?: boolean; action: () => void | Promise<void>; }>(null);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [lastSince, setLastSince] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -223,6 +228,50 @@ export function ChatWindow({
     }));
   };
 
+  const setChatField = async (field: "muted" | "pinned" | "favorite", value: boolean) => {
+    onChatUpdated?.({ ...chat, [field]: value });
+    try {
+      await api("set_chat_setting", { chat_id: chat.id, field, value }, currentUser.id);
+    } catch {
+      onChatUpdated?.({ ...chat, [field]: !value });
+    }
+  };
+
+  const handleToggleMute = () => setChatField("muted", !chat.muted);
+  const handleTogglePin = () => setChatField("pinned", !chat.pinned);
+  const handleToggleFavorite = () => setChatField("favorite", !chat.favorite);
+
+  const handleClearHistory = () => {
+    setConfirm({
+      title: "Очистить историю?",
+      text: "Все сообщения в этом чате будут скрыты у вас. Собеседник продолжит видеть их у себя.",
+      danger: true,
+      action: async () => {
+        await api("clear_history", { chat_id: chat.id }, currentUser.id);
+        setMessages([]);
+        setLastSince(Math.floor(Date.now() / 1000));
+      },
+    });
+  };
+
+  const handleBlock = () => {
+    if (!chat.partner_id) return;
+    setConfirm({
+      title: "Заблокировать пользователя?",
+      text: `${chat.name} больше не сможет писать вам сообщения. Чат скроется из списка.`,
+      danger: true,
+      action: async () => {
+        await api("block_user", { target_user_id: chat.partner_id }, currentUser.id);
+        onChatDeleted?.();
+        onBack();
+      },
+    });
+  };
+
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter(m => (m.text || "").toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : messages;
+
   return (
     <div className="flex flex-col h-full animate-fade-in relative">
       <ChatHeader
@@ -232,7 +281,36 @@ export function ChatWindow({
         setShowMenu={setShowMenu}
         onCall={onCall}
         onVideoCall={onVideoCall}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        showSearch={showSearch}
+        setShowSearch={setShowSearch}
+        onToggleMute={handleToggleMute}
+        onTogglePin={handleTogglePin}
+        onToggleFavorite={handleToggleFavorite}
+        onClearHistory={handleClearHistory}
+        onBlock={handleBlock}
       />
+
+      {confirm && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-6 animate-fade-in" onClick={() => setConfirm(null)}>
+          <div className="glass-strong rounded-2xl p-5 max-w-sm w-full animate-scale-in" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold mb-2">{confirm.title}</h3>
+            <p className="text-sm text-muted-foreground mb-4">{confirm.text}</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirm(null)} className="px-4 py-2 rounded-xl hover:bg-white/8 text-sm">
+                Отмена
+              </button>
+              <button
+                onClick={async () => { const a = confirm.action; setConfirm(null); await a(); }}
+                className={`px-4 py-2 rounded-xl text-sm font-medium ${confirm.danger ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" : "bg-violet-500/20 text-violet-400 hover:bg-violet-500/30"}`}
+              >
+                Подтвердить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lock badge */}
       <div className="flex justify-center py-2">
@@ -259,7 +337,7 @@ export function ChatWindow({
             .filter(m => (m.media_type === "image" || m.media_type === "video") && (m.media_url || m.image_url))
             .map(m => ({ url: (m.media_url || m.image_url)!, type: m.media_type === "video" ? "video" as const : "image" as const }));
 
-          return messages.map((msg, i) => {
+          return filteredMessages.map((msg, i) => {
             const isMedia = (msg.media_type === "image" || msg.media_type === "video") && (msg.media_url || msg.image_url);
             const galleryIndex = isMedia
               ? mediaGallery.findIndex(g => g.url === (msg.media_url || msg.image_url))

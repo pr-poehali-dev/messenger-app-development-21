@@ -111,14 +111,24 @@ def handler(event: dict, context) -> dict:
             return err("Нужен X-User-Id")
         cur.execute(
             f"""SELECT c.id, c.last_message, c.last_message_at,
-                       u.id, u.name, u.phone, u.avatar_url, u.last_seen
+                       u.id, u.name, u.phone, u.avatar_url, u.last_seen,
+                       COALESCE(cs.muted, FALSE),
+                       COALESCE(cs.pinned, FALSE),
+                       COALESCE(cs.favorite, FALSE),
+                       COALESCE(cs.cleared_at, 0)
                 FROM {SCHEMA}.chats c
                 JOIN {SCHEMA}.users u ON (
                     CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END = u.id
                 )
-                WHERE c.user1_id = %s OR c.user2_id = %s
-                ORDER BY c.last_message_at DESC NULLS LAST""",
-            (int(user_id), int(user_id), int(user_id))
+                LEFT JOIN {SCHEMA}.chat_settings cs
+                    ON cs.chat_id = c.id AND cs.user_id = %s
+                WHERE (c.user1_id = %s OR c.user2_id = %s)
+                  AND u.id NOT IN (
+                      SELECT blocked_id FROM {SCHEMA}.user_blocks WHERE blocker_id = %s
+                  )
+                ORDER BY COALESCE(cs.pinned, FALSE) DESC,
+                         c.last_message_at DESC NULLS LAST""",
+            (int(user_id), int(user_id), int(user_id), int(user_id), int(user_id))
         )
         rows = cur.fetchall()
 
@@ -127,10 +137,15 @@ def handler(event: dict, context) -> dict:
             chat_ids = [r[0] for r in rows]
             placeholders = ",".join(["%s"] * len(chat_ids))
             cur.execute(
-                f"""SELECT chat_id, COUNT(*) FROM {SCHEMA}.messages
-                    WHERE chat_id IN ({placeholders}) AND sender_id != %s AND read_at IS NULL
-                    GROUP BY chat_id""",
-                (*chat_ids, int(user_id))
+                f"""SELECT m.chat_id, COUNT(*) FROM {SCHEMA}.messages m
+                    LEFT JOIN {SCHEMA}.chat_settings cs
+                        ON cs.chat_id = m.chat_id AND cs.user_id = %s
+                    WHERE m.chat_id IN ({placeholders})
+                      AND m.sender_id != %s
+                      AND m.read_at IS NULL
+                      AND m.created_at > COALESCE(cs.cleared_at, 0)
+                    GROUP BY m.chat_id""",
+                (int(user_id), *chat_ids, int(user_id))
             )
             for r in cur.fetchall():
                 unread_map[r[0]] = r[1]
@@ -139,7 +154,8 @@ def handler(event: dict, context) -> dict:
         chats = [{
             "id": r[0], "last_message": r[1], "last_message_at": r[2],
             "partner": {"id": r[3], "name": r[4], "phone": r[5], "avatar_url": r[6], "last_seen": r[7]},
-            "unread": unread_map.get(r[0], 0)
+            "unread": unread_map.get(r[0], 0),
+            "muted": r[8], "pinned": r[9], "favorite": r[10], "cleared_at": r[11],
         } for r in rows]
         return ok({"chats": chats})
 
@@ -171,6 +187,18 @@ def handler(event: dict, context) -> dict:
         if not chat_id:
             conn.close()
             return err("Укажите chat_id")
+
+        cleared_at = 0
+        if user_id:
+            cur.execute(
+                f"SELECT cleared_at FROM {SCHEMA}.chat_settings WHERE user_id = %s AND chat_id = %s",
+                (int(user_id), int(chat_id))
+            )
+            r = cur.fetchone()
+            if r and r[0]:
+                cleared_at = int(r[0])
+        effective_since = max(int(since), cleared_at)
+
         cur.execute(
             f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
                        m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration
@@ -178,7 +206,7 @@ def handler(event: dict, context) -> dict:
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s
                 ORDER BY m.created_at ASC LIMIT 100""",
-            (int(chat_id), int(since))
+            (int(chat_id), effective_since)
         )
         rows = cur.fetchall()
 
@@ -571,6 +599,145 @@ def handler(event: dict, context) -> dict:
         if row:
             return ok({"call": {"call_id": row[0], "from_user_id": row[1], "from_name": row[2], "created_at": row[3]}})
         return ok({"call": None})
+
+    # ── set_chat_setting (muted / pinned / favorite) ─────────────────────────
+    if action == "set_chat_setting":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        field = body.get("field")  # muted | pinned | favorite
+        value = bool(body.get("value"))
+        if not chat_id or field not in ("muted", "pinned", "favorite"):
+            conn.close()
+            return err("Неверные параметры")
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chat_settings (user_id, chat_id, {field})
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, chat_id) DO UPDATE SET {field} = EXCLUDED.{field}""",
+            (int(user_id), int(chat_id), value)
+        )
+        conn.close()
+        return ok({"ok": True, "field": field, "value": value})
+
+    # ── clear_history ─────────────────────────────────────────────────────────
+    if action == "clear_history":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        if not chat_id:
+            conn.close()
+            return err("Укажите chat_id")
+        ts = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chat_settings (user_id, chat_id, cleared_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, chat_id) DO UPDATE SET cleared_at = EXCLUDED.cleared_at""",
+            (int(user_id), int(chat_id), ts)
+        )
+        conn.close()
+        return ok({"ok": True, "cleared_at": ts})
+
+    # ── block_user / unblock_user ─────────────────────────────────────────────
+    if action == "block_user":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        target = body.get("target_user_id")
+        if not target:
+            conn.close()
+            return err("Укажите target_user_id")
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.user_blocks (blocker_id, blocked_id, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (blocker_id, blocked_id) DO NOTHING""",
+            (int(user_id), int(target), int(time.time()))
+        )
+        conn.close()
+        return ok({"ok": True, "blocked": True})
+
+    if action == "unblock_user":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        target = body.get("target_user_id")
+        if not target:
+            conn.close()
+            return err("Укажите target_user_id")
+        cur.execute(
+            f"DELETE FROM {SCHEMA}.user_blocks WHERE blocker_id = %s AND blocked_id = %s",
+            (int(user_id), int(target))
+        )
+        conn.close()
+        return ok({"ok": True, "blocked": False})
+
+    if action == "is_blocked":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        target = body.get("target_user_id") or params.get("target_user_id")
+        if not target:
+            conn.close()
+            return err("Укажите target_user_id")
+        cur.execute(
+            f"SELECT 1 FROM {SCHEMA}.user_blocks WHERE blocker_id = %s AND blocked_id = %s",
+            (int(user_id), int(target))
+        )
+        is_b = cur.fetchone() is not None
+        conn.close()
+        return ok({"blocked": is_b})
+
+    # ── favorites (pin message) ───────────────────────────────────────────────
+    if action == "toggle_favorite_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        msg_id = body.get("message_id")
+        if not msg_id:
+            conn.close()
+            return err("Укажите message_id")
+        cur.execute(
+            f"SELECT id FROM {SCHEMA}.favorite_messages WHERE user_id = %s AND message_id = %s",
+            (int(user_id), int(msg_id))
+        )
+        existing = cur.fetchone()
+        if existing:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.favorite_messages WHERE user_id = %s AND message_id = %s",
+                (int(user_id), int(msg_id))
+            )
+            conn.close()
+            return ok({"ok": True, "favorite": False})
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.favorite_messages (user_id, message_id, created_at)
+                VALUES (%s, %s, %s)""",
+            (int(user_id), int(msg_id), int(time.time()))
+        )
+        conn.close()
+        return ok({"ok": True, "favorite": True})
+
+    if action == "get_favorite_messages":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT m.id, m.chat_id, m.sender_id, m.text, m.created_at, u.name,
+                       m.media_type, m.media_url, m.file_name
+                FROM {SCHEMA}.favorite_messages fm
+                JOIN {SCHEMA}.messages m ON m.id = fm.message_id
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE fm.user_id = %s
+                ORDER BY fm.created_at DESC LIMIT 200""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"messages": [{
+            "id": r[0], "chat_id": r[1], "sender_id": r[2], "text": r[3],
+            "created_at": r[4], "sender_name": r[5],
+            "media_type": r[6], "media_url": r[7], "file_name": r[8],
+        } for r in rows]})
 
     conn.close()
     return err("Неизвестный action")
