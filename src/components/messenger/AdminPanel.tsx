@@ -115,9 +115,13 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
   const confirmDeleteUser = async () => {
     if (!confirmDelete) return;
-    await adminApi("delete_user", { user_id: confirmDelete }, token);
-    setUsers(prev => prev.filter(u => u.id !== confirmDelete));
-    setSelectedUser(null);
+    const data = await adminApi("delete_user", { user_id: confirmDelete }, token);
+    if (data.ok) {
+      setUsers(prev => prev.filter(u => u.id !== confirmDelete));
+      setSelectedUser(null);
+    } else {
+      alert("Не удалось удалить: " + (data.error || "ошибка"));
+    }
     setConfirmDelete(null);
   };
 
@@ -462,23 +466,31 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             {loading && <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" /></div>}
 
             {users.map(u => (
-              <button key={u.id} onClick={() => openUser(u)}
-                className="w-full glass rounded-2xl p-4 flex items-center gap-3 hover:bg-white/8 transition-colors text-left">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-base flex-shrink-0 ${u.online ? "bg-gradient-to-br from-emerald-500 to-teal-500" : "bg-gradient-to-br from-violet-500 to-indigo-500"}`}>
-                  {u.name[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm truncate">{u.name}</span>
-                    {u.online && <span className="w-2 h-2 bg-emerald-400 rounded-full flex-shrink-0" />}
+              <div key={u.id} className="w-full glass rounded-2xl p-4 flex items-center gap-3 hover:bg-white/8 transition-colors group">
+                <button onClick={() => openUser(u)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-base flex-shrink-0 ${u.online ? "bg-gradient-to-br from-emerald-500 to-teal-500" : "bg-gradient-to-br from-violet-500 to-indigo-500"}`}>
+                    {u.name[0]?.toUpperCase()}
                   </div>
-                  <p className="text-xs text-muted-foreground">{u.phone}</p>
-                </div>
-                <div className="text-right">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm truncate">{u.name}</span>
+                      {u.online && <span className="w-2 h-2 bg-emerald-400 rounded-full flex-shrink-0" />}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{u.phone}</p>
+                  </div>
+                </button>
+                <div className="text-right flex-shrink-0">
                   <p className="text-[10px] text-muted-foreground">#{u.id}</p>
                   <p className="text-[10px] text-muted-foreground">{fmtTime(u.last_seen || 0)}</p>
                 </div>
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteUser(u.id); }}
+                  title="Удалить пользователя"
+                  className="p-2 rounded-xl hover:bg-red-500/15 text-red-400 transition-colors flex-shrink-0"
+                >
+                  <Icon name="Trash2" size={16} />
+                </button>
+              </div>
             ))}
           </div>
         )}

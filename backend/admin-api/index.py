@@ -188,10 +188,32 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             conn.close()
             return err("Нужен user_id")
-        cur.execute(f"DELETE FROM {SCHEMA}.messages WHERE sender_id = %s", (int(user_id),))
-        cur.execute(f"DELETE FROM {SCHEMA}.push_subscriptions WHERE user_id = %s", (int(user_id),))
-        cur.execute(f"DELETE FROM {SCHEMA}.contacts WHERE user_id = %s OR contact_id = %s", (int(user_id), int(user_id)))
-        cur.execute(f"DELETE FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
+        uid = int(user_id)
+        # Каскадное удаление всех связанных данных, чтобы FK не ломали удаление
+        safe_queries = [
+            f"DELETE FROM {SCHEMA}.message_reactions WHERE user_id = %s",
+            f"DELETE FROM {SCHEMA}.message_reactions WHERE message_id IN (SELECT id FROM {SCHEMA}.messages WHERE sender_id = %s)",
+            f"DELETE FROM {SCHEMA}.favorite_messages WHERE user_id = %s",
+            f"DELETE FROM {SCHEMA}.typing_status WHERE user_id = %s",
+            f"DELETE FROM {SCHEMA}.call_signals WHERE from_user_id = %s OR to_user_id = %s",
+            f"DELETE FROM {SCHEMA}.user_blocks WHERE user_id = %s OR blocked_id = %s",
+            f"DELETE FROM {SCHEMA}.chat_settings WHERE user_id = %s",
+            f"DELETE FROM {SCHEMA}.messages WHERE sender_id = %s",
+            f"DELETE FROM {SCHEMA}.messages WHERE chat_id IN (SELECT id FROM {SCHEMA}.chats WHERE user1_id = %s OR user2_id = %s)",
+            f"DELETE FROM {SCHEMA}.chats WHERE user1_id = %s OR user2_id = %s",
+            f"DELETE FROM {SCHEMA}.push_subscriptions WHERE user_id = %s",
+            f"DELETE FROM {SCHEMA}.contacts WHERE user_id = %s OR contact_id = %s",
+            f"DELETE FROM {SCHEMA}.sms_codes WHERE phone IN (SELECT phone FROM {SCHEMA}.users WHERE id = %s)",
+            f"DELETE FROM {SCHEMA}.users WHERE id = %s",
+        ]
+        for q in safe_queries:
+            try:
+                ph_count = q.count("%s")
+                cur.execute(q, tuple([uid] * ph_count))
+            except Exception:
+                # Если таблицы/колонки нет — пропускаем
+                conn.rollback()
+                cur = conn.cursor()
         conn.close()
         return ok({"ok": True})
 

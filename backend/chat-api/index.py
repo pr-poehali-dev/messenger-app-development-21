@@ -408,13 +408,29 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             conn.close()
             return err("Нужен X-User-Id")
-        new_name = (body.get("name") or "").strip()
-        if not new_name or len(new_name) < 2:
+        sets = []
+        vals = []
+        if "name" in body and body.get("name") is not None:
+            new_name = (body.get("name") or "").strip()
+            if not new_name or len(new_name) < 2:
+                conn.close()
+                return err("Имя слишком короткое")
+            sets.append("name = %s")
+            vals.append(new_name)
+        if "avatar_url" in body:
+            avatar_url = body.get("avatar_url") or None
+            if avatar_url is not None and not isinstance(avatar_url, str):
+                conn.close()
+                return err("Неверный avatar_url")
+            sets.append("avatar_url = %s")
+            vals.append(avatar_url)
+        if not sets:
             conn.close()
-            return err("Имя слишком короткое")
+            return err("Нет данных для обновления")
+        vals.append(int(user_id))
         cur.execute(
-            f"UPDATE {SCHEMA}.users SET name = %s WHERE id = %s RETURNING id, phone, name, avatar_url, created_at",
-            (new_name, int(user_id))
+            f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id = %s RETURNING id, phone, name, avatar_url, created_at",
+            tuple(vals)
         )
         row = cur.fetchone()
         conn.close()
