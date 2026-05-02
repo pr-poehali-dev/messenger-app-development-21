@@ -7,6 +7,7 @@ import { AuthScreen } from "@/components/messenger/AuthScreen";
 import { ContactsPanel } from "@/components/messenger/ContactsPanel";
 import { CallScreen } from "@/components/messenger/CallScreen";
 import { AdminPanel } from "@/components/messenger/AdminPanel";
+import InstallPrompt from "@/components/messenger/InstallPrompt";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -291,6 +292,9 @@ export default function Index() {
 
       {/* Story Viewer */}
       {viewingStory && <StoryViewer story={viewingStory} onClose={() => setViewingStory(null)} />}
+
+      {/* PWA install prompt */}
+      <InstallPrompt />
 
       {/* ── Sidebar ── */}
       <aside
