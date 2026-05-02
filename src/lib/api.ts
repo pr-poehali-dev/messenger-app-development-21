@@ -114,6 +114,7 @@ export interface Chat {
   id: number;
   name: string;
   avatar: string;
+  avatar_url?: string | null;
   lastMsg: string;
   time: string;
   unread?: number;

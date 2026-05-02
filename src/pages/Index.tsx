@@ -82,10 +82,11 @@ export default function Index() {
       const data = await api("get_chats", { archived: showArchived }, currentUser.id);
       if (typeof data.archived_count === "number") setArchivedCount(data.archived_count);
       if (data.chats) {
-        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number; muted?: boolean; pinned?: boolean; favorite?: boolean }) => ({
+        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number; avatar_url?: string | null }; unread: number; muted?: boolean; pinned?: boolean; favorite?: boolean }) => ({
           id: c.id,
           name: c.partner.name,
           avatar: c.partner.name[0]?.toUpperCase() || "?",
+          avatar_url: c.partner.avatar_url || null,
           lastMsg: c.last_message || "Нет сообщений",
           time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
           unread: c.unread || 0,
@@ -125,6 +126,7 @@ export default function Index() {
         id: data.chat_id,
         name: partner?.name || "Пользователь",
         avatar: (partner?.name || "П")[0].toUpperCase(),
+        avatar_url: partner?.avatar_url || null,
         lastMsg: "Начните общение",
         time: "",
         partner_id: partnerId,
@@ -134,10 +136,11 @@ export default function Index() {
       setShowSidebar(false);
       const chatsData = await api("get_chats", {}, currentUser.id);
       if (chatsData.chats) {
-        setRealChats(chatsData.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number }; unread: number }) => ({
+        setRealChats(chatsData.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number; avatar_url?: string | null }; unread: number }) => ({
           id: c.id,
           name: c.partner.name,
           avatar: c.partner.name[0]?.toUpperCase() || "?",
+          avatar_url: c.partner.avatar_url || null,
           lastMsg: c.last_message || "Нет сообщений",
           time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
           unread: c.unread || 0,
@@ -450,7 +453,7 @@ export default function Index() {
         ) : view === "contacts" ? (
           <ContactsPanel currentUser={currentUser} onStartChat={(chat) => { setSelectedChat(chat); setShowSidebar(false); }} onCall={startCall} onBack={() => { setView("chats"); setShowSidebar(true); }} />
         ) : view === "profile" ? (
-          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} onBack={() => { setView("chats"); setShowSidebar(true); }} />
+          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} onBack={() => { setView("chats"); setShowSidebar(true); }} chatsCount={realChats.length} />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />
         ) : (

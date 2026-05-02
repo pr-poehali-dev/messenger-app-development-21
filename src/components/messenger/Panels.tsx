@@ -3,6 +3,15 @@ import Icon from "@/components/ui/icon";
 import { api, avatarGrad, uploadMedia, type Story, type User, type IconName, STORIES } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import {
+  RINGTONES, NOTIFY_SOUNDS,
+  getRingtoneId, setRingtoneId,
+  getNotifyId, setNotifyId,
+  getVolume, setVolume,
+  previewRingtone, previewNotifySound, stopRingtone,
+  saveCustomRingtone, getCustomRingtoneMeta, clearCustomRingtone,
+  type RingtoneId, type NotifyId,
+} from "@/lib/sounds";
 
 // ─── StoryViewer ──────────────────────────────────────────────────────────────
 
@@ -119,7 +128,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0 }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -142,11 +151,24 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
   };
   const [theme, setTheme] = useState<"dark" | "midnight" | "violet">(() => (localStorage.getItem("nova_theme") as "dark" | "midnight" | "violet") || "dark");
   const [fontSize, setFontSize] = useState<number>(() => Number(localStorage.getItem("nova_font_size") || 16));
+  const [contactsCount, setContactsCount] = useState<number>(0);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.fontSize = `${fontSize}px`;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.classList.remove("theme-dark", "theme-midnight", "theme-violet");
+    root.classList.add(`theme-${theme}`);
+    root.style.fontSize = `${fontSize}px`;
   }, [theme, fontSize]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api("get_contacts", {}, currentUser.id).then((d) => {
+      if (cancelled) return;
+      if (Array.isArray(d.contacts)) setContactsCount(d.contacts.length);
+    }).catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [currentUser.id]);
 
   const formatPhone = (phone: string) => {
     const d = phone.replace(/\D/g, "");
@@ -335,11 +357,10 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 px-4 mb-4">
+      <div className="grid grid-cols-2 gap-3 px-4 mb-4">
         {[
-          { label: "Контакты", value: "248", icon: "Users" },
-          { label: "Медиа", value: "1.2K", icon: "Image" },
-          { label: "Группы", value: "14", icon: "Hash" },
+          { label: "Контакты", value: String(contactsCount), icon: "Users" },
+          { label: "Чаты", value: String(chatsCount), icon: "MessageCircle" },
         ].map((s, i) => (
           <div key={s.label} className={`glass rounded-2xl p-3 text-center animate-fade-in stagger-${i + 1}`}>
             <Icon name={s.icon as IconName} size={18} className="text-violet-400 mx-auto mb-1" />
@@ -408,7 +429,14 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
               {(["dark", "midnight", "violet"] as const).map(t => (
                 <button
                   key={t}
-                  onClick={() => { setTheme(t); document.documentElement.dataset.theme = t; localStorage.setItem("nova_theme", t); }}
+                  onClick={() => {
+                    setTheme(t);
+                    const root = document.documentElement;
+                    root.dataset.theme = t;
+                    root.classList.remove("theme-dark", "theme-midnight", "theme-violet");
+                    root.classList.add(`theme-${t}`);
+                    localStorage.setItem("nova_theme", t);
+                  }}
                   className={`p-3 rounded-xl border-2 transition-all ${theme === t ? "border-violet-500 bg-violet-500/10" : "border-white/10 hover:border-white/20"}`}
                 >
                   <div className={`w-full h-8 rounded-lg mb-2 ${t === "dark" ? "bg-gradient-to-br from-zinc-900 to-zinc-800" : t === "midnight" ? "bg-gradient-to-br from-slate-900 to-indigo-950" : "bg-gradient-to-br from-violet-900 to-fuchsia-900"}`} />
@@ -453,6 +481,35 @@ export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBa
   const [biometric, setBiometric] = useState(() => readBool("nova_sec_biometric", true));
   const [notifications, setNotifications] = useState(() => readBool("nova_sec_notifications", true));
   const [msgPreview, setMsgPreview] = useState(() => readBool("nova_sec_msg_preview", false));
+
+  // Звуки
+  const [ringtone, setRingtone] = useState<RingtoneId>(() => getRingtoneId());
+  const [notifySnd, setNotifySnd] = useState<NotifyId>(() => getNotifyId());
+  const [volume, setVolumeS] = useState<number>(() => getVolume());
+  const [customMeta, setCustomMeta] = useState<{ name: string; size: number; type: string } | null>(null);
+  const ringFileRef = useRef<HTMLInputElement | null>(null);
+  const [pushPerm, setPushPerm] = useState<NotificationPermission>(() => (typeof Notification !== "undefined" ? Notification.permission : "default"));
+
+  useEffect(() => { getCustomRingtoneMeta().then(setCustomMeta); }, []);
+
+  const onPickRingFile = () => ringFileRef.current?.click();
+  const onRingFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!f.type.startsWith("audio/")) { alert("Можно загрузить только аудио"); return; }
+    if (f.size > 10 * 1024 * 1024) { alert("Файл слишком большой (макс 10 МБ)"); return; }
+    const meta = await saveCustomRingtone(f);
+    setCustomMeta({ name: meta.name, size: meta.size, type: f.type });
+    setRingtoneId("custom");
+    setRingtone("custom");
+  };
+
+  const requestPushPerm = async () => {
+    if (typeof Notification === "undefined") return;
+    const p = await Notification.requestPermission();
+    setPushPerm(p);
+  };
 
   const [pinFlow, setPinFlow] = useState<null | { step: "set" | "confirm" | "verify"; first?: string; value: string; error?: string }>(null);
 
@@ -563,6 +620,129 @@ export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBa
                 {!notifications ? "Уведомления отключены" : msgPreview ? "Алексей: Привет! Как дела?" : "Новое сообщение"}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Push-разрешение */}
+        {pushPerm !== "granted" && (
+          <div className="px-4 py-3 glass rounded-2xl mt-1 flex items-center gap-3 border border-amber-500/30">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+              <Icon name="BellRing" size={18} className="text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">
+                {pushPerm === "denied" ? "Уведомления заблокированы" : "Включи уведомления"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {pushPerm === "denied"
+                  ? "Разреши в настройках браузера, чтобы видеть звонки и сообщения при заблокированном экране"
+                  : "Чтобы получать звонки и сообщения, когда телефон заблокирован"}
+              </div>
+            </div>
+            {pushPerm !== "denied" && (
+              <button onClick={requestPushPerm} className="px-3 py-1.5 grad-primary text-white rounded-xl text-xs font-semibold flex-shrink-0">
+                Включить
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Звуки */}
+        <div className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mt-4 mb-1 px-1">Звуки</div>
+
+        {/* Громкость */}
+        <div className="px-4 py-3 glass rounded-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <Icon name="Volume2" size={16} className="text-violet-400" />
+            <span className="text-sm font-medium">Громкость</span>
+            <span className="ml-auto text-xs text-muted-foreground">{Math.round(volume * 100)}%</span>
+          </div>
+          <input
+            type="range" min={0} max={100} step={5}
+            value={Math.round(volume * 100)}
+            onChange={(e) => { const v = Number(e.target.value) / 100; setVolumeS(v); setVolume(v); }}
+            className="w-full accent-violet-500"
+          />
+        </div>
+
+        {/* Мелодия звонка */}
+        <div className="px-4 py-3 glass rounded-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <Icon name="Phone" size={16} className="text-violet-400" />
+            <span className="text-sm font-medium">Мелодия звонка</span>
+          </div>
+          <div className="space-y-1.5">
+            {RINGTONES.map((r) => (
+              <div key={r.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl border ${ringtone === r.id ? "border-violet-500 bg-violet-500/10" : "border-white/5 hover:bg-white/5"}`}>
+                <button
+                  onClick={() => { setRingtone(r.id); setRingtoneId(r.id); }}
+                  className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 ${ringtone === r.id ? "border-violet-500" : "border-white/20"} flex items-center justify-center flex-shrink-0`}>
+                    {ringtone === r.id && <div className="w-2.5 h-2.5 rounded-full bg-violet-500" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">{r.name}</div>
+                    {r.id === "custom" && customMeta && <div className="text-[11px] text-muted-foreground truncate">{customMeta.name}</div>}
+                    {r.id === "custom" && !customMeta && <div className="text-[11px] text-muted-foreground">Файл не загружен</div>}
+                  </div>
+                </button>
+                {r.id === "custom" ? (
+                  <>
+                    <button onClick={onPickRingFile} className="p-1.5 rounded-lg hover:bg-white/8" title="Загрузить">
+                      <Icon name="Upload" size={14} className="text-violet-400" />
+                    </button>
+                    {customMeta && (
+                      <>
+                        <button onClick={() => previewRingtone("custom")} className="p-1.5 rounded-lg hover:bg-white/8" title="Прослушать">
+                          <Icon name="Play" size={14} />
+                        </button>
+                        <button onClick={async () => { await clearCustomRingtone(); setCustomMeta(null); if (ringtone === "custom") { setRingtone("nova"); setRingtoneId("nova"); } }} className="p-1.5 rounded-lg hover:bg-red-500/15 text-red-400" title="Удалить">
+                          <Icon name="Trash2" size={14} />
+                        </button>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => previewRingtone(r.id)} className="p-1.5 rounded-lg hover:bg-white/8" title="Прослушать">
+                      <Icon name="Play" size={14} />
+                    </button>
+                    <button onClick={() => stopRingtone()} className="p-1.5 rounded-lg hover:bg-white/8" title="Остановить">
+                      <Icon name="Square" size={14} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <input ref={ringFileRef} type="file" accept="audio/*" className="hidden" onChange={onRingFile} />
+          <p className="text-[11px] text-muted-foreground mt-2">Загрузи MP3, WAV или другой аудиофайл — он будет играть как в Telegram при входящем звонке.</p>
+        </div>
+
+        {/* Звук уведомлений */}
+        <div className="px-4 py-3 glass rounded-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <Icon name="Bell" size={16} className="text-violet-400" />
+            <span className="text-sm font-medium">Звук уведомлений</span>
+          </div>
+          <div className="space-y-1.5">
+            {NOTIFY_SOUNDS.map((s) => (
+              <div key={s.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl border ${notifySnd === s.id ? "border-violet-500 bg-violet-500/10" : "border-white/5 hover:bg-white/5"}`}>
+                <button
+                  onClick={() => { setNotifySnd(s.id); setNotifyId(s.id); previewNotifySound(s.id); }}
+                  className="flex items-center gap-3 flex-1 text-left"
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 ${notifySnd === s.id ? "border-violet-500" : "border-white/20"} flex items-center justify-center flex-shrink-0`}>
+                    {notifySnd === s.id && <div className="w-2.5 h-2.5 rounded-full bg-violet-500" />}
+                  </div>
+                  <span className="text-sm">{s.name}</span>
+                </button>
+                <button onClick={() => previewNotifySound(s.id)} className="p-1.5 rounded-lg hover:bg-white/8">
+                  <Icon name="Play" size={14} />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

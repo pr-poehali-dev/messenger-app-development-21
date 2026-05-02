@@ -3,12 +3,16 @@ import { avatarGrad, type Chat, type Story, STORIES } from "@/lib/api";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-export function Avatar({ label, id, size = "md", online }: { label: string; id: number; size?: "sm" | "md" | "lg" | "xl"; online?: boolean }) {
+export function Avatar({ label, id, size = "md", online, src }: { label: string; id: number; size?: "sm" | "md" | "lg" | "xl"; online?: boolean; src?: string | null }) {
   const sz = { sm: "w-9 h-9 text-sm", md: "w-11 h-11 text-base", lg: "w-14 h-14 text-xl", xl: "w-20 h-20 text-3xl" }[size];
   return (
     <div className="relative flex-shrink-0">
-      <div className={`${sz} rounded-full bg-gradient-to-br ${avatarGrad(id)} flex items-center justify-center font-bold text-white`}>
-        {label}
+      <div className={`${sz} rounded-full bg-gradient-to-br ${avatarGrad(id)} flex items-center justify-center font-bold text-white overflow-hidden`}>
+        {src ? (
+          <img src={src} alt={label} className="w-full h-full object-cover" />
+        ) : (
+          label
+        )}
       </div>
       {online && (
         <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-[hsl(var(--background))] rounded-full" />
@@ -70,7 +74,7 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
       className={`w-full flex items-center gap-3 px-4 py-3 transition-all duration-200 rounded-2xl mx-2 animate-fade-in stagger-${Math.min(i + 1, 5)}
         ${selectedId === chat.id ? "bg-white/8 glass" : "hover:bg-white/4"}`}
     >
-      <Avatar label={chat.avatar} id={chat.id} online={chat.online} />
+      <Avatar label={chat.avatar} id={chat.id} online={chat.online} src={chat.avatar_url || undefined} />
       <div className="flex-1 min-w-0 text-left">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">

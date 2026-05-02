@@ -61,6 +61,66 @@
     --sidebar-border: 230 15% 20%;
     --sidebar-ring: 258 90% 66%;
   }
+
+  /* Тёмная (default) — уже задана в :root, дублируем явно для надёжности */
+  :root.theme-dark {
+    --background: 230 20% 8%;
+    --foreground: 220 20% 95%;
+    --card: 230 18% 12%;
+    --muted: 230 15% 16%;
+    --muted-foreground: 220 15% 55%;
+    --border: 230 15% 20%;
+    --primary: 258 90% 66%;
+    --ring: 258 90% 66%;
+    --grad-primary: linear-gradient(
+      135deg,
+      #7c3aed 0%,
+      #4f46e5 50%,
+      #0ea5e9 100%
+    );
+    --grad-msg-out: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+    --sidebar-bg: rgba(15, 14, 23, 0.95);
+  }
+
+  /* Полночь — глубокий синий */
+  :root.theme-midnight {
+    --background: 230 35% 6%;
+    --foreground: 215 25% 96%;
+    --card: 230 30% 11%;
+    --muted: 230 25% 14%;
+    --muted-foreground: 220 15% 60%;
+    --border: 230 25% 18%;
+    --primary: 220 90% 62%;
+    --ring: 220 90% 62%;
+    --grad-primary: linear-gradient(
+      135deg,
+      #1e3a8a 0%,
+      #4338ca 50%,
+      #0ea5e9 100%
+    );
+    --grad-msg-out: linear-gradient(135deg, #1e40af 0%, #4338ca 100%);
+    --sidebar-bg: rgba(8, 12, 30, 0.95);
+  }
+
+  /* Фиолет — насыщенный */
+  :root.theme-violet {
+    --background: 270 35% 8%;
+    --foreground: 280 25% 96%;
+    --card: 270 30% 13%;
+    --muted: 270 25% 16%;
+    --muted-foreground: 270 15% 65%;
+    --border: 270 25% 22%;
+    --primary: 280 95% 70%;
+    --ring: 280 95% 70%;
+    --grad-primary: linear-gradient(
+      135deg,
+      #7c3aed 0%,
+      #c026d3 50%,
+      #db2777 100%
+    );
+    --grad-msg-out: linear-gradient(135deg, #9333ea 0%, #c026d3 100%);
+    --sidebar-bg: rgba(28, 12, 40, 0.95);
+  }
 }
 
 @layer base {
