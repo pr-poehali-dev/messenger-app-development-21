@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import { api, avatarGrad, type Contact, type User, type Chat } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
+import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 
 export function ContactsPanel({
   currentUser,
@@ -14,6 +15,7 @@ export function ContactsPanel({
   onCall: (contact: Contact) => void;
   onBack?: () => void;
 }) {
+  useEdgeSwipeBack(onBack);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);

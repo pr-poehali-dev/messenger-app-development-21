@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import { api, avatarGrad, type Story, type User, type IconName, STORIES } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
+import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 
 // ─── StoryViewer ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export function StoryViewer({ story, onClose }: { story: Story; onClose: () => v
 // ─── SearchPanel ──────────────────────────────────────────────────────────────
 
 export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users: User[]; currentUser: User; onStartChat: (id: number) => void; onBack?: () => void }) {
+  useEdgeSwipeBack(onBack);
   const [query, setQuery] = useState("");
   const results = users.filter(u => !query || u.name.toLowerCase().includes(query.toLowerCase()) || u.phone.includes(query));
 
@@ -118,6 +120,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
 export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void }) {
+  useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
   const [saving, setSaving] = useState(false);
@@ -261,6 +264,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack }: 
 // ─── SettingsPanel ────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ onLogout, onBack }: { onLogout: () => void; onBack?: () => void }) {
+  useEdgeSwipeBack(onBack);
   const [e2e, setE2e] = useState(true);
   const [twofa, setTwofa] = useState(false);
   const [biometric, setBiometric] = useState(true);

@@ -9,6 +9,7 @@ import { TypingIndicator } from "@/components/messenger/ChatAtoms";
 import { SwipeableMessage } from "@/components/messenger/SwipeableMessage";
 import { formatDateLabel, dayKey } from "@/components/messenger/dateGroup";
 import { LinkifiedText, extractFirstUrl, getDomain } from "@/components/messenger/LinkifiedText";
+import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -26,6 +27,7 @@ export function ChatWindow({
   onChatUpdated?: (chat: Chat) => void;
   onChatDeleted?: () => void;
 }) {
+  useEdgeSwipeBack(onBack);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [showAttach, setShowAttach] = useState(false);
