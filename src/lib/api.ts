@@ -148,6 +148,56 @@ export interface User {
   incognito?: boolean;
   who_can_message?: "everyone" | "contacts" | "nobody";
   who_can_call?: "everyone" | "contacts" | "nobody";
+  lightning_balance?: number;
+  pro_trial_used?: boolean;
+  stickers_subscription_until?: number | null;
+}
+
+export interface LightningTx {
+  id: number;
+  amount: number;
+  kind: string;
+  description: string;
+  related_user_id?: number | null;
+  balance_after: number;
+  created_at: number;
+}
+
+export interface StickerPack {
+  id: number;
+  author_id?: number | null;
+  title: string;
+  description: string;
+  cover_url?: string | null;
+  price: number;
+  is_premium: boolean;
+  total_sales: number;
+  created_at: number;
+  owned?: boolean;
+  items?: { id: number; emoji: string; image_url: string; position: number }[];
+}
+
+export interface Fundraiser {
+  id: number;
+  owner_id: number;
+  owner_name: string;
+  owner_avatar?: string | null;
+  title: string;
+  description: string;
+  cover_url?: string | null;
+  target_amount: number;
+  collected_amount: number;
+  status: "active" | "closed";
+  created_at: number;
+  closed_at?: number | null;
+  donations: {
+    id: number;
+    donor_id?: number | null;
+    donor_name: string;
+    amount: number;
+    message: string;
+    created_at: number;
+  }[];
 }
 
 export interface WalletTransaction {

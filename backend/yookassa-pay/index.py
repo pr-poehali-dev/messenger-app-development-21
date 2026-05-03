@@ -114,7 +114,18 @@ def handler(event, context):
         return {'statusCode': 503, 'headers': HEADERS, 'body': json.dumps({'error': 'ЮKassa не настроена. Добавь YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в секреты проекта.'})}
 
     purpose = data.get('purpose') or 'wallet_topup'
-    description = 'Пополнение кошелька Nova' if purpose == 'wallet_topup' else 'Оплата Nova'
+    related_id = data.get('related_id')
+    extra = data.get('extra') or {}
+    descriptions = {
+        'wallet_topup': 'Пополнение кошелька Nova',
+        'pro_month': 'Nova Pro · 1 месяц',
+        'pro_year': 'Nova Pro · 1 год',
+        'lightning': f'Покупка {extra.get("quantity", "")}⚡ Молний Nova',
+        'fundraiser': 'Донат на сбор Nova',
+        'sticker_pack': f'Стикерпак: {extra.get("title", "")}',
+        'stickers_subscription': 'Подписка на авторские стикеры Nova',
+    }
+    description = descriptions.get(purpose, 'Оплата Nova')
 
     S = get_schema()
     conn = get_conn()
@@ -125,15 +136,20 @@ def handler(event, context):
 
         cur.execute(
             f"""INSERT INTO {S}orders
-                (order_number, user_email, amount, status, created_at, updated_at, nova_user_id, purpose)
-                VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s)
+                (order_number, user_email, amount, status, created_at, updated_at, nova_user_id, purpose, related_id, metadata_json)
+                VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, %s, %s)
                 RETURNING id""",
-            (order_number, user_email, amount, now, now, user_id, purpose),
+            (order_number, user_email, amount, now, now, user_id, purpose,
+             int(related_id) if related_id else None, json.dumps(extra)),
         )
         order_id = cur.fetchone()[0]
         conn.commit()
 
         metadata = {"order_id": str(order_id), "order_number": order_number, "user_id": str(user_id), "purpose": purpose}
+        if related_id:
+            metadata["related_id"] = str(related_id)
+        if extra.get("quantity"):
+            metadata["quantity"] = str(extra["quantity"])
         yk = create_yookassa_payment(
             shop_id=shop_id, secret_key=secret_key, amount=amount,
             description=f"{description} ({order_number})",

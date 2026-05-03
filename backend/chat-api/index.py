@@ -27,7 +27,7 @@ def err(msg, code=400):
     return {"statusCode": code, "headers": CORS, "body": json.dumps({"error": msg}, ensure_ascii=False)}
 
 
-USER_COLS = "id, phone, name, avatar_url, created_at, about, gender, birthdate, COALESCE(wallet_balance, 0), pro_until, emoji_status, name_color, COALESCE(incognito, FALSE), COALESCE(who_can_message, 'everyone'), COALESCE(who_can_call, 'everyone')"
+USER_COLS = "id, phone, name, avatar_url, created_at, about, gender, birthdate, COALESCE(wallet_balance, 0), pro_until, emoji_status, name_color, COALESCE(incognito, FALSE), COALESCE(who_can_message, 'everyone'), COALESCE(who_can_call, 'everyone'), COALESCE(lightning_balance, 0), COALESCE(pro_trial_used, FALSE), stickers_subscription_until"
 
 
 def serialize_user(row):
@@ -44,6 +44,9 @@ def serialize_user(row):
         "incognito": bool(row[12]),
         "who_can_message": row[13] or "everyone",
         "who_can_call": row[14] or "everyone",
+        "lightning_balance": int(row[15]) if len(row) > 15 and row[15] is not None else 0,
+        "pro_trial_used": bool(row[16]) if len(row) > 16 else False,
+        "stickers_subscription_until": int(row[17]) if len(row) > 17 and row[17] else None,
     }
 
 
@@ -1595,43 +1598,464 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"balance": new_balance})
 
-    # ── buy_pro ───────────────────────────────────────────────────────────────
+    # ── buy_pro (через кошелёк Nova) ──────────────────────────────────────────
     if action == "buy_pro":
         if not user_id:
-            conn.close()
-            return err("Нужен X-User-Id")
+            conn.close(); return err("Нужен X-User-Id")
         plan = body.get("plan") or "month"
-        prices = {"month": 299.0, "year": 1990.0, "test": 1.0}
-        durations = {"month": 30 * 86400, "year": 365 * 86400, "test": 7 * 86400}
+        prices = {"month": 199.0, "year": 1490.0, "trial": 0.0}
+        durations = {"month": 30 * 86400, "year": 365 * 86400, "trial": 3 * 86400}
         if plan not in prices:
-            conn.close()
-            return err("plan: month | year | test")
+            conn.close(); return err("plan: month | year | trial")
         price = prices[plan]
         duration = durations[plan]
-        cur.execute(f"SELECT COALESCE(wallet_balance,0), COALESCE(pro_until, 0) FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
+        cur.execute(f"SELECT COALESCE(wallet_balance,0), COALESCE(pro_until,0), COALESCE(pro_trial_used,FALSE) FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
         r = cur.fetchone()
         if not r:
-            conn.close()
-            return err("Пользователь не найден", 404)
-        balance = float(r[0])
-        cur_until = int(r[1] or 0)
-        if balance < price:
-            conn.close()
-            return err(f"Недостаточно средств. Нужно {price}₽, на счету {balance}₽")
+            conn.close(); return err("Пользователь не найден", 404)
+        balance = float(r[0]); cur_until = int(r[1] or 0); trial_used = bool(r[2])
         now = int(time.time())
+        if plan == "trial":
+            if trial_used:
+                conn.close(); return err("Пробный период уже был использован")
+            new_until = max(cur_until, now) + duration
+            cur.execute(f"UPDATE {SCHEMA}.users SET pro_until=%s, pro_trial_used=TRUE WHERE id=%s", (new_until, int(user_id)))
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.pro_subscriptions (user_id, plan, amount, source, starts_at, ends_at, is_trial, created_at)
+                    VALUES (%s,'trial',0,'trial',%s,%s,TRUE,%s)""",
+                (int(user_id), now, new_until, now)
+            )
+            conn.close()
+            return ok({"balance": balance, "pro_until": new_until, "is_pro": True, "is_trial": True})
+        if balance < price:
+            conn.close(); return err(f"Недостаточно средств. Нужно {price}₽, на счету {balance}₽")
         new_until = max(cur_until, now) + duration
         new_balance = balance - price
-        cur.execute(
-            f"UPDATE {SCHEMA}.users SET wallet_balance = %s, pro_until = %s WHERE id = %s",
-            (new_balance, new_until, int(user_id))
-        )
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=%s, pro_until=%s WHERE id=%s", (new_balance, new_until, int(user_id)))
         cur.execute(
             f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
                 VALUES (%s, %s, 'pro_purchase', %s, %s, %s)""",
             (int(user_id), -price, f"Nova Pro ({plan})", new_balance, now)
         )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.pro_subscriptions (user_id, plan, amount, source, starts_at, ends_at, is_trial, created_at)
+                VALUES (%s,%s,%s,'wallet',%s,%s,FALSE,%s)""",
+            (int(user_id), plan, price, now, new_until, now)
+        )
         conn.close()
         return ok({"balance": new_balance, "pro_until": new_until, "is_pro": True})
+
+    # ── buy_stickers_subscription (100₽/мес) через кошелёк ────────────────────
+    if action == "buy_stickers_subscription":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        price = 100.0
+        cur.execute(f"SELECT COALESCE(wallet_balance,0), COALESCE(stickers_subscription_until,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Пользователь не найден", 404)
+        balance = float(r[0]); cur_until = int(r[1] or 0)
+        if balance < price:
+            conn.close(); return err(f"Недостаточно средств. Нужно {price}₽")
+        now = int(time.time())
+        new_until = max(cur_until, now) + 30 * 86400
+        new_balance = balance - price
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=%s, stickers_subscription_until=%s WHERE id=%s", (new_balance, new_until, int(user_id)))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s,%s,'stickers_subscription',%s,%s,%s)""",
+            (int(user_id), -price, "Подписка на авторские стикеры", new_balance, now)
+        )
+        conn.close()
+        return ok({"balance": new_balance, "stickers_subscription_until": new_until})
+
+    # ── lightning_balance ─────────────────────────────────────────────────────
+    if action == "lightning_balance":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(f"SELECT COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        r = cur.fetchone()
+        conn.close()
+        return ok({"lightning": int(r[0]) if r else 0})
+
+    # ── lightning_history ─────────────────────────────────────────────────────
+    if action == "lightning_history":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, amount, kind, description, related_user_id, balance_after, created_at
+                FROM {SCHEMA}.lightning_transactions WHERE user_id=%s ORDER BY created_at DESC LIMIT 100""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"transactions": [
+            {"id": r[0], "amount": int(r[1]), "kind": r[2], "description": r[3] or "",
+             "related_user_id": r[4], "balance_after": int(r[5]), "created_at": int(r[6])}
+            for r in rows
+        ]})
+
+    # ── lightning_buy (купить за рубли через кошелёк, курс 3₽=1⚡) ────────────
+    if action == "lightning_buy":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            qty = int(body.get("quantity") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверное количество")
+        if qty < 1 or qty > 1000000:
+            conn.close(); return err("От 1 до 1000000 ⚡")
+        price = qty * 3.0
+        cur.execute(f"SELECT COALESCE(wallet_balance,0), COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Пользователь не найден", 404)
+        balance = float(r[0]); lb = int(r[1] or 0)
+        if balance < price:
+            conn.close(); return err(f"Недостаточно средств. Нужно {price:.2f}₽")
+        now = int(time.time())
+        new_balance = balance - price
+        new_lb = lb + qty
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=%s, lightning_balance=%s WHERE id=%s", (new_balance, new_lb, int(user_id)))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s,%s,'lightning_purchase',%s,%s,%s)""",
+            (int(user_id), -price, f"Покупка {qty}⚡", new_balance, now)
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.lightning_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s,%s,'purchase','Покупка молний',%s,%s)""",
+            (int(user_id), qty, new_lb, now)
+        )
+        conn.close()
+        return ok({"lightning": new_lb, "balance": new_balance})
+
+    # ── lightning_send (подарить молнии другому) ──────────────────────────────
+    if action == "lightning_send":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            qty = int(body.get("quantity") or 0)
+            to_user = int(body.get("to_user_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        message = (body.get("message") or "")[:200]
+        if qty < 1 or qty > 100000:
+            conn.close(); return err("От 1 до 100000 ⚡")
+        if to_user <= 0 or to_user == int(user_id):
+            conn.close(); return err("Нельзя отправить себе")
+        cur.execute(f"SELECT COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Пользователь не найден", 404)
+        my_lb = int(r[0] or 0)
+        if my_lb < qty:
+            conn.close(); return err(f"Недостаточно ⚡. У тебя {my_lb}, нужно {qty}")
+        cur.execute(f"SELECT id, name, COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (to_user,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Получатель не найден", 404)
+        recipient_name = rr[1] or "Друг"
+        their_lb = int(rr[2] or 0)
+        now = int(time.time())
+        new_my = my_lb - qty
+        new_their = their_lb + qty
+        cur.execute(f"UPDATE {SCHEMA}.users SET lightning_balance=%s WHERE id=%s", (new_my, int(user_id)))
+        cur.execute(f"UPDATE {SCHEMA}.users SET lightning_balance=%s WHERE id=%s", (new_their, to_user))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.lightning_transactions (user_id, amount, kind, description, related_user_id, balance_after, created_at)
+                VALUES (%s,%s,'sent',%s,%s,%s,%s)""",
+            (int(user_id), -qty, f"Отправлено {recipient_name}", to_user, new_my, now)
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.lightning_transactions (user_id, amount, kind, description, related_user_id, balance_after, created_at)
+                VALUES (%s,%s,'received','Подарок ⚡',%s,%s,%s)""",
+            (to_user, qty, int(user_id), new_their, now)
+        )
+        conn.close()
+        return ok({"lightning": new_my, "sent": qty, "to_user": to_user, "to_name": recipient_name, "message": message})
+
+    # ── fundraiser_create ─────────────────────────────────────────────────────
+    if action == "fundraiser_create":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        title = (body.get("title") or "").strip()
+        description = (body.get("description") or "").strip()[:1000]
+        cover_url = body.get("cover_url") or None
+        try:
+            target = float(body.get("target_amount") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверная сумма")
+        if not title or len(title) < 2:
+            conn.close(); return err("Введите название сбора")
+        if target < 100 or target > 10_000_000:
+            conn.close(); return err("Сумма от 100 до 10 000 000 ₽")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.fundraisers
+                (owner_id, title, description, cover_url, target_amount, status, created_at)
+                VALUES (%s,%s,%s,%s,%s,'active',%s) RETURNING id""",
+            (int(user_id), title, description, cover_url, target, now)
+        )
+        fid = cur.fetchone()[0]
+        conn.close()
+        return ok({"fundraiser_id": fid, "title": title, "target_amount": target})
+
+    # ── fundraiser_get ────────────────────────────────────────────────────────
+    if action == "fundraiser_get":
+        try:
+            fid = int(body.get("fundraiser_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный id")
+        if fid <= 0:
+            conn.close(); return err("Нужен fundraiser_id")
+        cur.execute(
+            f"""SELECT f.id, f.owner_id, u.name, u.avatar_url, f.title, f.description, f.cover_url,
+                       f.target_amount, f.collected_amount, f.status, f.created_at, f.closed_at
+                FROM {SCHEMA}.fundraisers f
+                LEFT JOIN {SCHEMA}.users u ON u.id = f.owner_id
+                WHERE f.id=%s""",
+            (fid,)
+        )
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Сбор не найден", 404)
+        cur.execute(
+            f"""SELECT id, donor_id, donor_name, amount, message, is_anonymous, created_at
+                FROM {SCHEMA}.fundraiser_payments
+                WHERE fundraiser_id=%s AND status='paid'
+                ORDER BY created_at DESC LIMIT 50""",
+            (fid,)
+        )
+        donations = [
+            {"id": d[0], "donor_id": d[1], "donor_name": ("Аноним" if d[5] else (d[2] or "Друг")),
+             "amount": float(d[3]), "message": d[4] or "", "created_at": int(d[6])}
+            for d in cur.fetchall()
+        ]
+        conn.close()
+        return ok({"fundraiser": {
+            "id": r[0], "owner_id": r[1], "owner_name": r[2] or "", "owner_avatar": r[3],
+            "title": r[4], "description": r[5] or "", "cover_url": r[6],
+            "target_amount": float(r[7]), "collected_amount": float(r[8]),
+            "status": r[9], "created_at": int(r[10]), "closed_at": (int(r[11]) if r[11] else None),
+            "donations": donations,
+        }})
+
+    # ── fundraiser_donate_wallet (с кошелька Nova) ────────────────────────────
+    if action == "fundraiser_donate_wallet":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            fid = int(body.get("fundraiser_id") or 0)
+            amount = float(body.get("amount") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        message = (body.get("message") or "")[:200]
+        is_anon = bool(body.get("is_anonymous"))
+        if fid <= 0 or amount < 10 or amount > 1_000_000:
+            conn.close(); return err("Сумма от 10 ₽")
+        cur.execute(f"SELECT owner_id, status FROM {SCHEMA}.fundraisers WHERE id=%s", (fid,))
+        f = cur.fetchone()
+        if not f:
+            conn.close(); return err("Сбор не найден", 404)
+        if f[1] != 'active':
+            conn.close(); return err("Сбор уже закрыт")
+        cur.execute(f"SELECT name, COALESCE(wallet_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        u = cur.fetchone()
+        if not u:
+            conn.close(); return err("Пользователь не найден", 404)
+        donor_name = u[0] or "Друг"
+        balance = float(u[1])
+        if balance < amount:
+            conn.close(); return err(f"Недостаточно средств. На счету {balance:.2f}₽")
+        now = int(time.time())
+        new_balance = balance - amount
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=%s WHERE id=%s", (new_balance, int(user_id)))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s,%s,'donation',%s,%s,%s)""",
+            (int(user_id), -amount, f"Донат в сбор #{fid}", new_balance, now)
+        )
+        # Зачислим автору сбора
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=COALESCE(wallet_balance,0)+%s WHERE id=%s RETURNING wallet_balance", (amount, int(f[0])))
+        owner_balance = float(cur.fetchone()[0])
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s,%s,'fundraiser_income',%s,%s,%s)""",
+            (int(f[0]), amount, f"Донат на сбор #{fid}", owner_balance, now)
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.fundraiser_payments
+                (fundraiser_id, donor_id, donor_name, amount, message, is_anonymous, source, status, created_at, paid_at)
+                VALUES (%s,%s,%s,%s,%s,%s,'wallet','paid',%s,%s)""",
+            (fid, int(user_id), donor_name, amount, message, is_anon, now, now)
+        )
+        cur.execute(
+            f"UPDATE {SCHEMA}.fundraisers SET collected_amount=COALESCE(collected_amount,0)+%s WHERE id=%s RETURNING collected_amount, target_amount",
+            (amount, fid)
+        )
+        rr = cur.fetchone()
+        collected = float(rr[0]); target = float(rr[1])
+        conn.close()
+        return ok({"balance": new_balance, "collected_amount": collected, "target_amount": target,
+                   "completed": collected >= target})
+
+    # ── fundraiser_close ──────────────────────────────────────────────────────
+    if action == "fundraiser_close":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            fid = int(body.get("fundraiser_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный id")
+        cur.execute(f"SELECT owner_id FROM {SCHEMA}.fundraisers WHERE id=%s", (fid,))
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Сбор не найден", 404)
+        if int(r[0]) != int(user_id):
+            conn.close(); return err("Только автор может закрыть сбор", 403)
+        now = int(time.time())
+        cur.execute(f"UPDATE {SCHEMA}.fundraisers SET status='closed', closed_at=%s WHERE id=%s", (now, fid))
+        conn.close()
+        return ok({"status": "closed"})
+
+    # ── stickers_list (магазин) ───────────────────────────────────────────────
+    if action == "stickers_list":
+        cur.execute(
+            f"""SELECT id, author_id, title, description, cover_url, price, is_premium, total_sales, created_at
+                FROM {SCHEMA}.sticker_packs WHERE is_published=TRUE ORDER BY total_sales DESC, id DESC LIMIT 100"""
+        )
+        packs = [
+            {"id": r[0], "author_id": r[1], "title": r[2], "description": r[3] or "",
+             "cover_url": r[4], "price": float(r[5]), "is_premium": bool(r[6]),
+             "total_sales": int(r[7]), "created_at": int(r[8])}
+            for r in cur.fetchall()
+        ]
+        owned_ids = []
+        if user_id:
+            cur.execute(f"SELECT pack_id FROM {SCHEMA}.user_sticker_packs WHERE user_id=%s", (int(user_id),))
+            owned_ids = [int(x[0]) for x in cur.fetchall()]
+        for p in packs:
+            p["owned"] = p["id"] in owned_ids
+        conn.close()
+        return ok({"packs": packs})
+
+    # ── stickers_pack_get ─────────────────────────────────────────────────────
+    if action == "stickers_pack_get":
+        try:
+            pid = int(body.get("pack_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный id")
+        cur.execute(
+            f"""SELECT id, author_id, title, description, cover_url, price, is_premium, total_sales, created_at
+                FROM {SCHEMA}.sticker_packs WHERE id=%s AND is_published=TRUE""",
+            (pid,)
+        )
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Пак не найден", 404)
+        cur.execute(
+            f"""SELECT id, emoji, image_url, position FROM {SCHEMA}.sticker_items
+                WHERE pack_id=%s ORDER BY position ASC, id ASC""",
+            (pid,)
+        )
+        items = [{"id": x[0], "emoji": x[1] or "", "image_url": x[2], "position": int(x[3])} for x in cur.fetchall()]
+        owned = False
+        if user_id:
+            cur.execute(f"SELECT 1 FROM {SCHEMA}.user_sticker_packs WHERE user_id=%s AND pack_id=%s", (int(user_id), pid))
+            owned = cur.fetchone() is not None
+        conn.close()
+        return ok({"pack": {
+            "id": r[0], "author_id": r[1], "title": r[2], "description": r[3] or "",
+            "cover_url": r[4], "price": float(r[5]), "is_premium": bool(r[6]),
+            "total_sales": int(r[7]), "created_at": int(r[8]), "owned": owned, "items": items
+        }})
+
+    # ── stickers_buy_pack (через кошелёк, 60% автору, 40% платформе) ──────────
+    if action == "stickers_buy_pack":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            pid = int(body.get("pack_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный id")
+        cur.execute(f"SELECT author_id, title, price, is_premium FROM {SCHEMA}.sticker_packs WHERE id=%s AND is_published=TRUE", (pid,))
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Пак не найден", 404)
+        author_id = r[0]; title = r[1]; price = float(r[2]); is_premium = bool(r[3])
+        # Проверка дубля
+        cur.execute(f"SELECT 1 FROM {SCHEMA}.user_sticker_packs WHERE user_id=%s AND pack_id=%s", (int(user_id), pid))
+        if cur.fetchone():
+            conn.close(); return err("Этот пак уже у тебя")
+        now = int(time.time())
+        new_balance = None
+        if is_premium:
+            # Доступ по подписке
+            cur.execute(f"SELECT COALESCE(stickers_subscription_until,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+            ss = cur.fetchone()
+            ss_until = int(ss[0] or 0) if ss else 0
+            if ss_until <= now:
+                conn.close(); return err("Этот пак по подписке. Оформи подписку на авторские стикеры за 100₽/мес")
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.user_sticker_packs (user_id, pack_id, acquired_at, acquired_via)
+                    VALUES (%s,%s,%s,'subscription')""",
+                (int(user_id), pid, now)
+            )
+        elif price <= 0:
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.user_sticker_packs (user_id, pack_id, acquired_at, acquired_via)
+                    VALUES (%s,%s,%s,'free')""",
+                (int(user_id), pid, now)
+            )
+        else:
+            cur.execute(f"SELECT COALESCE(wallet_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+            balance = float(cur.fetchone()[0])
+            if balance < price:
+                conn.close(); return err(f"Недостаточно средств. Нужно {price:.2f}₽")
+            new_balance = balance - price
+            cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=%s WHERE id=%s", (new_balance, int(user_id)))
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                    VALUES (%s,%s,'sticker_purchase',%s,%s,%s)""",
+                (int(user_id), -price, f"Стикерпак: {title}", new_balance, now)
+            )
+            # 60% автору
+            if author_id:
+                author_share = round(price * 0.6, 2)
+                cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=COALESCE(wallet_balance,0)+%s WHERE id=%s RETURNING wallet_balance", (author_share, int(author_id)))
+                ab_row = cur.fetchone()
+                if ab_row:
+                    ab = float(ab_row[0])
+                    cur.execute(
+                        f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                            VALUES (%s,%s,'sticker_royalty',%s,%s,%s)""",
+                        (int(author_id), author_share, f"Роялти за пак: {title}", ab, now)
+                    )
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.user_sticker_packs (user_id, pack_id, acquired_at, acquired_via)
+                    VALUES (%s,%s,%s,'purchase')""",
+                (int(user_id), pid, now)
+            )
+            cur.execute(f"UPDATE {SCHEMA}.sticker_packs SET total_sales=total_sales+1 WHERE id=%s", (pid,))
+        conn.close()
+        return ok({"owned": True, "balance": new_balance})
+
+    # ── stickers_my (мои паки) ────────────────────────────────────────────────
+    if action == "stickers_my":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT p.id, p.title, p.cover_url, usp.acquired_at
+                FROM {SCHEMA}.user_sticker_packs usp
+                JOIN {SCHEMA}.sticker_packs p ON p.id = usp.pack_id
+                WHERE usp.user_id=%s
+                ORDER BY usp.acquired_at DESC""",
+            (int(user_id),)
+        )
+        my = [{"id": r[0], "title": r[1], "cover_url": r[2], "acquired_at": int(r[3])} for r in cur.fetchall()]
+        conn.close()
+        return ok({"packs": my})
 
     conn.close()
     return err("Неизвестный action")

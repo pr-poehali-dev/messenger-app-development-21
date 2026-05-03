@@ -6,11 +6,14 @@ interface Props {
   currentUser: User;
   onClose: () => void;
   onUserUpdate?: (u: User) => void;
+  onOpenLightning?: () => void;
+  onOpenStickers?: () => void;
+  onCreateFundraiser?: () => void;
 }
 
 const PRESET_AMOUNTS = [100, 300, 500, 1000];
 
-export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Props) {
+export default function WalletPanel({ currentUser, onClose, onUserUpdate, onOpenLightning, onOpenStickers, onCreateFundraiser }: Props) {
   const [balance, setBalance] = useState<number>(currentUser.wallet_balance || 0);
   const [proUntil, setProUntil] = useState<number | null>(currentUser.pro_until || null);
   const [tx, setTx] = useState<WalletTransaction[]>([]);
@@ -158,6 +161,40 @@ export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Prop
               Пополнить
             </button>
           </div>
+        </div>
+
+        {/* Quick actions */}
+        <div className="grid grid-cols-3 gap-2">
+          {onOpenLightning && (
+            <button onClick={onOpenLightning}
+              className="glass rounded-2xl p-3 flex flex-col items-center gap-1 hover:bg-white/10 transition active:scale-95">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-amber-400 bg-amber-500/15">
+                <Icon name="Zap" size={18} />
+              </div>
+              <div className="text-[11px] font-bold">Молнии</div>
+              <div className="text-[10px] text-muted-foreground">{currentUser.lightning_balance || 0} ⚡</div>
+            </button>
+          )}
+          {onOpenStickers && (
+            <button onClick={onOpenStickers}
+              className="glass rounded-2xl p-3 flex flex-col items-center gap-1 hover:bg-white/10 transition active:scale-95">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-pink-400 bg-pink-500/15">
+                <Icon name="Sparkles" size={18} />
+              </div>
+              <div className="text-[11px] font-bold">Стикеры</div>
+              <div className="text-[10px] text-muted-foreground">Магазин</div>
+            </button>
+          )}
+          {onCreateFundraiser && (
+            <button onClick={onCreateFundraiser}
+              className="glass rounded-2xl p-3 flex flex-col items-center gap-1 hover:bg-white/10 transition active:scale-95">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-rose-400 bg-rose-500/15">
+                <Icon name="HandHeart" size={18} />
+              </div>
+              <div className="text-[11px] font-bold">Сбор</div>
+              <div className="text-[10px] text-muted-foreground">Создать</div>
+            </button>
+          )}
         </div>
 
         {/* Topup form */}

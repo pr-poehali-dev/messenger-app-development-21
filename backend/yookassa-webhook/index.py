@@ -84,17 +84,21 @@ def handler(event, context):
         now_ts = int(time.time())
         now_iso = datetime.utcnow().isoformat()
 
-        cur.execute(f"SELECT id, status, amount, nova_user_id, purpose FROM {S}orders WHERE yookassa_payment_id = %s", (payment_id,))
+        cur.execute(f"SELECT id, status, amount, nova_user_id, purpose, related_id, metadata_json FROM {S}orders WHERE yookassa_payment_id = %s", (payment_id,))
         row = cur.fetchone()
         if not row:
             order_meta_id = metadata.get('order_id')
             if order_meta_id:
-                cur.execute(f"SELECT id, status, amount, nova_user_id, purpose FROM {S}orders WHERE id = %s", (int(order_meta_id),))
+                cur.execute(f"SELECT id, status, amount, nova_user_id, purpose, related_id, metadata_json FROM {S}orders WHERE id = %s", (int(order_meta_id),))
                 row = cur.fetchone()
         if not row:
             return {'statusCode': 200, 'headers': HEADERS, 'body': json.dumps({'status': 'order_not_found'})}
 
-        order_id, current_status, order_amount, nova_user_id, purpose = row
+        order_id, current_status, order_amount, nova_user_id, purpose, related_id, meta_json = row
+        try:
+            meta = json.loads(meta_json) if meta_json else {}
+        except Exception:
+            meta = {}
 
         if status == 'succeeded':
             if current_status != 'paid':
@@ -102,21 +106,107 @@ def handler(event, context):
                     f"UPDATE {S}orders SET status='paid', paid_at=%s, updated_at=%s WHERE id=%s",
                     (now_iso, now_iso, order_id),
                 )
-                if nova_user_id and (purpose == 'wallet_topup' or not purpose):
+                amt = float(order_amount)
+                uid = int(nova_user_id) if nova_user_id else None
+
+                if uid and (purpose in (None, '', 'wallet_topup')):
                     cur.execute(
                         f"UPDATE {S}users SET wallet_balance = COALESCE(wallet_balance,0) + %s WHERE id = %s RETURNING wallet_balance",
-                        (float(order_amount), int(nova_user_id)),
+                        (amt, uid),
                     )
-                    r2 = cur.fetchone()
-                    if r2:
-                        new_balance = float(r2[0])
-                        desc = f"Пополнение через ЮKassa ({payment_method or 'card'})"
+                    nb = float(cur.fetchone()[0])
+                    cur.execute(
+                        f"""INSERT INTO {S}wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                            VALUES (%s,%s,'topup',%s,%s,%s)""",
+                        (uid, amt, f"Пополнение через ЮKassa ({payment_method or 'card'})", nb, now_ts),
+                    )
+
+                elif uid and purpose in ('pro_month', 'pro_year'):
+                    duration = 30 * 86400 if purpose == 'pro_month' else 365 * 86400
+                    plan_name = 'month' if purpose == 'pro_month' else 'year'
+                    cur.execute(f"SELECT COALESCE(pro_until,0) FROM {S}users WHERE id=%s", (uid,))
+                    cur_until = int((cur.fetchone() or [0])[0] or 0)
+                    new_until = max(cur_until, now_ts) + duration
+                    cur.execute(f"UPDATE {S}users SET pro_until=%s WHERE id=%s", (new_until, uid))
+                    cur.execute(
+                        f"""INSERT INTO {S}pro_subscriptions (user_id, plan, amount, source, yookassa_payment_id, starts_at, ends_at, is_trial, created_at)
+                            VALUES (%s,%s,%s,'yookassa',%s,%s,%s,FALSE,%s)""",
+                        (uid, plan_name, amt, payment_id, now_ts, new_until, now_ts),
+                    )
+
+                elif uid and purpose == 'lightning':
+                    qty = int(meta.get('quantity') or (amt / 3))
+                    cur.execute(
+                        f"UPDATE {S}users SET lightning_balance = COALESCE(lightning_balance,0) + %s WHERE id=%s RETURNING lightning_balance",
+                        (qty, uid),
+                    )
+                    nlb = int(cur.fetchone()[0])
+                    cur.execute(
+                        f"""INSERT INTO {S}lightning_transactions (user_id, amount, kind, description, balance_after, created_at)
+                            VALUES (%s,%s,'purchase','Покупка через ЮKassa',%s,%s)""",
+                        (uid, qty, nlb, now_ts),
+                    )
+
+                elif purpose == 'fundraiser' and related_id:
+                    fid = int(related_id)
+                    cur.execute(f"SELECT owner_id FROM {S}fundraisers WHERE id=%s", (fid,))
+                    fr = cur.fetchone()
+                    if fr:
+                        owner_id = int(fr[0])
+                        donor_name = meta.get('donor_name') or 'Гость'
+                        donor_msg = meta.get('message') or ''
+                        is_anon = bool(meta.get('is_anonymous'))
                         cur.execute(
-                            f"""INSERT INTO {S}wallet_transactions
-                                (user_id, amount, kind, description, balance_after, created_at)
-                                VALUES (%s, %s, 'topup', %s, %s, %s)""",
-                            (int(nova_user_id), float(order_amount), desc, new_balance, now_ts),
+                            f"UPDATE {S}users SET wallet_balance = COALESCE(wallet_balance,0) + %s WHERE id=%s RETURNING wallet_balance",
+                            (amt, owner_id),
                         )
+                        ob = float(cur.fetchone()[0])
+                        cur.execute(
+                            f"""INSERT INTO {S}wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                                VALUES (%s,%s,'fundraiser_income',%s,%s,%s)""",
+                            (owner_id, amt, f"Донат на сбор #{fid}", ob, now_ts),
+                        )
+                        cur.execute(
+                            f"""INSERT INTO {S}fundraiser_payments (fundraiser_id, donor_id, donor_name, amount, message, is_anonymous, source, yookassa_payment_id, status, created_at, paid_at)
+                                VALUES (%s,%s,%s,%s,%s,%s,'yookassa',%s,'paid',%s,%s)""",
+                            (fid, uid, donor_name, amt, donor_msg, is_anon, payment_id, now_ts, now_ts),
+                        )
+                        cur.execute(f"UPDATE {S}fundraisers SET collected_amount = COALESCE(collected_amount,0) + %s WHERE id=%s", (amt, fid))
+
+                elif uid and purpose == 'sticker_pack' and related_id:
+                    pid = int(related_id)
+                    cur.execute(f"SELECT 1 FROM {S}user_sticker_packs WHERE user_id=%s AND pack_id=%s", (uid, pid))
+                    if not cur.fetchone():
+                        cur.execute(
+                            f"""INSERT INTO {S}user_sticker_packs (user_id, pack_id, acquired_at, acquired_via)
+                                VALUES (%s,%s,%s,'yookassa')""",
+                            (uid, pid, now_ts),
+                        )
+                        cur.execute(f"UPDATE {S}sticker_packs SET total_sales = total_sales + 1 WHERE id=%s", (pid,))
+                        cur.execute(f"SELECT author_id, title FROM {S}sticker_packs WHERE id=%s", (pid,))
+                        sp = cur.fetchone()
+                        if sp and sp[0]:
+                            author_id = int(sp[0]); title = sp[1] or "пак"
+                            share = round(amt * 0.6, 2)
+                            cur.execute(
+                                f"UPDATE {S}users SET wallet_balance = COALESCE(wallet_balance,0) + %s WHERE id=%s RETURNING wallet_balance",
+                                (share, author_id),
+                            )
+                            ab_row = cur.fetchone()
+                            if ab_row:
+                                ab = float(ab_row[0])
+                                cur.execute(
+                                    f"""INSERT INTO {S}wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                                        VALUES (%s,%s,'sticker_royalty',%s,%s,%s)""",
+                                    (author_id, share, f"Роялти за пак: {title}", ab, now_ts),
+                                )
+
+                elif uid and purpose == 'stickers_subscription':
+                    cur.execute(f"SELECT COALESCE(stickers_subscription_until,0) FROM {S}users WHERE id=%s", (uid,))
+                    cu = int((cur.fetchone() or [0])[0] or 0)
+                    new_su = max(cu, now_ts) + 30 * 86400
+                    cur.execute(f"UPDATE {S}users SET stickers_subscription_until=%s WHERE id=%s", (new_su, uid))
+
                 conn.commit()
 
         elif status == 'canceled':

@@ -15,6 +15,9 @@ import { GroupChatWindow } from "@/components/messenger/GroupChatWindow";
 import WalletPanel from "@/components/messenger/WalletPanel";
 import ProPanel from "@/components/messenger/ProPanel";
 import ProSettingsPanel from "@/components/messenger/ProSettingsPanel";
+import LightningPanel from "@/components/messenger/LightningPanel";
+import StickersStorePanel from "@/components/messenger/StickersStorePanel";
+import FundraiserPanel from "@/components/messenger/FundraiserPanel";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -33,6 +36,20 @@ export default function Index() {
       }
     } catch { /* ignore */ }
     setSessionChecked(true);
+  }, []);
+
+  // Открытие сбора по ссылке ?fund=ID
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const fid = url.searchParams.get("fund");
+    if (fid) {
+      const id = parseInt(fid, 10);
+      if (!isNaN(id) && id > 0) {
+        setFundraiserView({ mode: "view", id });
+        url.searchParams.delete("fund");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
   }, []);
 
   const [activeTab, setActiveTab] = useState<Tab>("chats");
@@ -55,6 +72,9 @@ export default function Index() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
   const [showProSettings, setShowProSettings] = useState(false);
+  const [showLightning, setShowLightning] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
+  const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
 
   // Push-подписка
   useEffect(() => {
@@ -280,6 +300,9 @@ export default function Index() {
           currentUser={currentUser}
           onClose={() => setShowWallet(false)}
           onUserUpdate={(u) => setCurrentUser(u)}
+          onOpenLightning={() => { setShowWallet(false); setShowLightning(true); }}
+          onOpenStickers={() => { setShowWallet(false); setShowStickers(true); }}
+          onCreateFundraiser={() => { setShowWallet(false); setFundraiserView({ mode: "create" }); }}
         />
       )}
 
@@ -290,6 +313,38 @@ export default function Index() {
           onClose={() => setShowProSettings(false)}
           onUserUpdate={(u) => setCurrentUser(u)}
           onOpenPro={() => { setShowProSettings(false); setShowPro(true); }}
+        />
+      )}
+
+      {/* Lightning */}
+      {showLightning && currentUser && (
+        <LightningPanel
+          currentUser={currentUser}
+          onClose={() => setShowLightning(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Stickers store */}
+      {showStickers && currentUser && (
+        <StickersStorePanel
+          currentUser={currentUser}
+          onClose={() => setShowStickers(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Fundraiser */}
+      {fundraiserView && currentUser && (
+        <FundraiserPanel
+          currentUser={currentUser}
+          fundraiserId={fundraiserView.mode === "view" ? fundraiserView.id : undefined}
+          mode={fundraiserView.mode}
+          onClose={() => setFundraiserView(null)}
+          onCreated={(id, title) => {
+            navigator.clipboard?.writeText(`${window.location.origin}/?fund=${id}`).catch(() => {});
+            alert(`Сбор «${title}» создан! Ссылка скопирована — отправь её друзьям.`);
+          }}
         />
       )}
 
