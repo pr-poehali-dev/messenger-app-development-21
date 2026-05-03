@@ -20,11 +20,31 @@ def get_conn():
 
 
 def ok(data):
-    return {"statusCode": 200, "headers": CORS, "body": json.dumps(data, ensure_ascii=False)}
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps(data, ensure_ascii=False, default=str)}
 
 
 def err(msg, code=400):
     return {"statusCode": code, "headers": CORS, "body": json.dumps({"error": msg}, ensure_ascii=False)}
+
+
+USER_COLS = "id, phone, name, avatar_url, created_at, about, gender, birthdate, COALESCE(wallet_balance, 0), pro_until, emoji_status, name_color, COALESCE(incognito, FALSE), COALESCE(who_can_message, 'everyone'), COALESCE(who_can_call, 'everyone')"
+
+
+def serialize_user(row):
+    if not row:
+        return None
+    return {
+        "id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3],
+        "created_at": row[4], "about": row[5], "gender": row[6],
+        "birthdate": row[7].isoformat() if row[7] else None,
+        "wallet_balance": float(row[8]) if row[8] is not None else 0,
+        "pro_until": row[9],
+        "is_pro": bool(row[9]) and int(row[9]) > int(time.time()),
+        "emoji_status": row[10], "name_color": row[11],
+        "incognito": bool(row[12]),
+        "who_can_message": row[13] or "everyone",
+        "who_can_call": row[14] or "everyone",
+    }
 
 
 def handler(event: dict, context) -> dict:
@@ -55,17 +75,17 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите phone и name")
 
-        cur.execute(f"SELECT id, phone, name, avatar_url, created_at, about, gender, birthdate FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        cur.execute(f"SELECT {USER_COLS} FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         existing = cur.fetchone()
         if existing:
             cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE phone = %s", (int(time.time()), phone))
             conn.close()
-            return ok({"user": {"id": existing[0], "phone": existing[1], "name": existing[2], "avatar_url": existing[3], "created_at": existing[4], "about": existing[5], "gender": existing[6], "birthdate": existing[7].isoformat() if existing[7] else None}, "existed": True})
+            return ok({"user": serialize_user(existing), "existed": True})
 
         cur.execute(
             f"""INSERT INTO {SCHEMA}.users (phone, name, last_seen, created_at)
                 VALUES (%s, %s, %s, %s)
-                RETURNING id, phone, name, avatar_url, created_at, about, gender, birthdate""",
+                RETURNING {USER_COLS}""",
             (phone, name, int(time.time()), int(time.time()))
         )
         row = cur.fetchone()
@@ -87,7 +107,7 @@ def handler(event: dict, context) -> dict:
                 urllib.request.urlopen(req, timeout=5)
             except Exception:
                 pass
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5], "gender": row[6], "birthdate": row[7].isoformat() if row[7] else None}})
+        return ok({"user": serialize_user(row)})
 
     # ── get_me ────────────────────────────────────────────────────────────────
     if action == "get_me":
@@ -95,12 +115,12 @@ def handler(event: dict, context) -> dict:
         if not phone:
             conn.close()
             return err("Укажите phone")
-        cur.execute(f"SELECT id, phone, name, avatar_url, created_at, about, gender, birthdate FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        cur.execute(f"SELECT {USER_COLS} FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         row = cur.fetchone()
         conn.close()
         if not row:
             return err("Пользователь не найден", 404)
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5], "gender": row[6], "birthdate": row[7].isoformat() if row[7] else None}})
+        return ok({"user": serialize_user(row)})
 
     # ── get_users ─────────────────────────────────────────────────────────────
     if action == "get_users":
@@ -108,17 +128,21 @@ def handler(event: dict, context) -> dict:
         exclude_id = body.get("exclude_id") or params.get("exclude_id")
         if query:
             cur.execute(
-                f"SELECT id, name, phone, avatar_url, last_seen FROM {SCHEMA}.users WHERE (name ILIKE %s OR phone LIKE %s) AND id != %s LIMIT 30",
+                f"SELECT id, name, phone, avatar_url, last_seen, COALESCE(incognito, FALSE), emoji_status, name_color FROM {SCHEMA}.users WHERE (name ILIKE %s OR phone LIKE %s) AND id != %s LIMIT 30",
                 (f"%{query}%", f"%{query}%", exclude_id or 0)
             )
         else:
             cur.execute(
-                f"SELECT id, name, phone, avatar_url, last_seen FROM {SCHEMA}.users WHERE id != %s ORDER BY last_seen DESC LIMIT 50",
+                f"SELECT id, name, phone, avatar_url, last_seen, COALESCE(incognito, FALSE), emoji_status, name_color FROM {SCHEMA}.users WHERE id != %s ORDER BY last_seen DESC LIMIT 50",
                 (exclude_id or 0,)
             )
         rows = cur.fetchall()
         conn.close()
-        users = [{"id": r[0], "name": r[1], "phone": r[2], "avatar_url": r[3], "last_seen": r[4]} for r in rows]
+        users = [{
+            "id": r[0], "name": r[1], "phone": r[2], "avatar_url": r[3],
+            "last_seen": 0 if r[5] else r[4],
+            "emoji_status": r[6], "name_color": r[7],
+        } for r in rows]
         return ok({"users": users})
 
     # ── get_chats ─────────────────────────────────────────────────────────────
@@ -470,26 +494,55 @@ def handler(event: dict, context) -> dict:
             if bd_raw is None or bd_raw == "":
                 sets.append("birthdate = %s"); vals.append(None)
             else:
-                # Ожидаем формат YYYY-MM-DD
                 bd_str = str(bd_raw).strip()
                 import re as _re
                 if not _re.match(r"^\d{4}-\d{2}-\d{2}$", bd_str):
                     conn.close()
                     return err("Неверная дата (YYYY-MM-DD)")
                 sets.append("birthdate = %s"); vals.append(bd_str)
+        if "emoji_status" in body:
+            es = body.get("emoji_status")
+            if es is None or es == "":
+                sets.append("emoji_status = %s"); vals.append(None)
+            else:
+                sets.append("emoji_status = %s"); vals.append(str(es)[:8])
+        if "name_color" in body:
+            nc = body.get("name_color")
+            if nc is None or nc == "":
+                sets.append("name_color = %s"); vals.append(None)
+            else:
+                import re as _re2
+                if not _re2.match(r"^#[0-9a-fA-F]{6}$", str(nc)):
+                    conn.close()
+                    return err("Неверный цвет (формат #RRGGBB)")
+                sets.append("name_color = %s"); vals.append(str(nc))
+        if "incognito" in body:
+            sets.append("incognito = %s"); vals.append(bool(body.get("incognito")))
+        if "who_can_message" in body:
+            v = body.get("who_can_message")
+            if v not in ("everyone", "contacts", "nobody"):
+                conn.close()
+                return err("who_can_message: everyone | contacts | nobody")
+            sets.append("who_can_message = %s"); vals.append(v)
+        if "who_can_call" in body:
+            v = body.get("who_can_call")
+            if v not in ("everyone", "contacts", "nobody"):
+                conn.close()
+                return err("who_can_call: everyone | contacts | nobody")
+            sets.append("who_can_call = %s"); vals.append(v)
         if not sets:
             conn.close()
             return err("Нет данных для обновления")
         vals.append(int(user_id))
         cur.execute(
-            f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id = %s RETURNING id, phone, name, avatar_url, created_at, about, gender, birthdate",
+            f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id = %s RETURNING {USER_COLS}",
             tuple(vals)
         )
         row = cur.fetchone()
         conn.close()
         if not row:
             return err("Пользователь не найден", 404)
-        return ok({"user": {"id": row[0], "phone": row[1], "name": row[2], "avatar_url": row[3], "created_at": row[4], "about": row[5], "gender": row[6], "birthdate": row[7].isoformat() if row[7] else None}})
+        return ok({"user": serialize_user(row)})
 
     # ── set_typing ────────────────────────────────────────────────────────────
     if action == "set_typing":
@@ -1481,6 +1534,104 @@ def handler(event: dict, context) -> dict:
         )
         conn.close()
         return ok({"ok": True})
+
+    # ── wallet_balance ────────────────────────────────────────────────────────
+    if action == "wallet_balance":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        cur.execute(f"SELECT COALESCE(wallet_balance, 0), pro_until FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
+        r = cur.fetchone()
+        conn.close()
+        if not r:
+            return err("Пользователь не найден", 404)
+        return ok({"balance": float(r[0]), "pro_until": r[1], "is_pro": bool(r[1]) and int(r[1]) > int(time.time())})
+
+    # ── wallet_history ────────────────────────────────────────────────────────
+    if action == "wallet_history":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, amount, kind, description, balance_after, created_at
+                FROM {SCHEMA}.wallet_transactions
+                WHERE user_id = %s ORDER BY created_at DESC LIMIT 100""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        tx = [{"id": r[0], "amount": float(r[1]), "kind": r[2], "description": r[3] or "",
+               "balance_after": float(r[4]), "created_at": r[5]} for r in rows]
+        return ok({"transactions": tx})
+
+    # ── wallet_topup (тестовое пополнение) ────────────────────────────────────
+    if action == "wallet_topup":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        try:
+            amount = float(body.get("amount") or 0)
+        except (TypeError, ValueError):
+            conn.close()
+            return err("Неверная сумма")
+        if amount <= 0 or amount > 100000:
+            conn.close()
+            return err("Сумма от 1 до 100000")
+        description = (body.get("description") or "Пополнение через Dev Panel")[:200]
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET wallet_balance = COALESCE(wallet_balance,0) + %s WHERE id = %s RETURNING wallet_balance",
+            (amount, int(user_id))
+        )
+        r = cur.fetchone()
+        if not r:
+            conn.close()
+            return err("Пользователь не найден", 404)
+        new_balance = float(r[0])
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s, %s, 'topup', %s, %s, %s)""",
+            (int(user_id), amount, description, new_balance, int(time.time()))
+        )
+        conn.close()
+        return ok({"balance": new_balance})
+
+    # ── buy_pro ───────────────────────────────────────────────────────────────
+    if action == "buy_pro":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        plan = body.get("plan") or "month"
+        prices = {"month": 299.0, "year": 1990.0, "test": 1.0}
+        durations = {"month": 30 * 86400, "year": 365 * 86400, "test": 7 * 86400}
+        if plan not in prices:
+            conn.close()
+            return err("plan: month | year | test")
+        price = prices[plan]
+        duration = durations[plan]
+        cur.execute(f"SELECT COALESCE(wallet_balance,0), COALESCE(pro_until, 0) FROM {SCHEMA}.users WHERE id = %s", (int(user_id),))
+        r = cur.fetchone()
+        if not r:
+            conn.close()
+            return err("Пользователь не найден", 404)
+        balance = float(r[0])
+        cur_until = int(r[1] or 0)
+        if balance < price:
+            conn.close()
+            return err(f"Недостаточно средств. Нужно {price}₽, на счету {balance}₽")
+        now = int(time.time())
+        new_until = max(cur_until, now) + duration
+        new_balance = balance - price
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET wallet_balance = %s, pro_until = %s WHERE id = %s",
+            (new_balance, new_until, int(user_id))
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, kind, description, balance_after, created_at)
+                VALUES (%s, %s, 'pro_purchase', %s, %s, %s)""",
+            (int(user_id), -price, f"Nova Pro ({plan})", new_balance, now)
+        )
+        conn.close()
+        return ok({"balance": new_balance, "pro_until": new_until, "is_pro": True})
 
     conn.close()
     return err("Неизвестный action")

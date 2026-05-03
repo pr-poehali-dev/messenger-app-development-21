@@ -139,6 +139,23 @@ export interface User {
   about?: string | null;
   gender?: "male" | "female" | null;
   birthdate?: string | null;
+  wallet_balance?: number;
+  pro_until?: number | null;
+  is_pro?: boolean;
+  emoji_status?: string | null;
+  name_color?: string | null;
+  incognito?: boolean;
+  who_can_message?: "everyone" | "contacts" | "nobody";
+  who_can_call?: "everyone" | "contacts" | "nobody";
+}
+
+export interface WalletTransaction {
+  id: number;
+  amount: number;
+  kind: string;
+  description: string;
+  balance_after: number;
+  created_at: number;
 }
 
 export interface Group {

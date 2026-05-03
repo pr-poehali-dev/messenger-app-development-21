@@ -12,6 +12,9 @@ import ComingSoon from "@/components/messenger/ComingSoon";
 import { ChatFolders, filterChatsByFolder, useChatFolder } from "@/components/messenger/ChatFolders";
 import GroupCreateModal from "@/components/messenger/GroupCreateModal";
 import { GroupChatWindow } from "@/components/messenger/GroupChatWindow";
+import WalletPanel from "@/components/messenger/WalletPanel";
+import ProPanel from "@/components/messenger/ProPanel";
+import ProSettingsPanel from "@/components/messenger/ProSettingsPanel";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -50,6 +53,8 @@ export default function Index() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
+  const [showProSettings, setShowProSettings] = useState(false);
 
   // Push-подписка
   useEffect(() => {
@@ -259,42 +264,33 @@ export default function Index() {
       {/* Mesh background */}
       <div className="mesh-bg" />
 
-      {/* Nova Pro modal */}
-      {showPro && (
-        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowPro(false)}>
-          <div className="w-full max-w-sm glass-strong rounded-t-3xl p-6 pb-10 animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl" style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
-                👑
-              </div>
-            </div>
-            <h2 className="text-2xl font-black text-center mb-1">Nova Pro</h2>
-            <p className="text-muted-foreground text-sm text-center mb-6">Разблокируй все возможности мессенджера</p>
-            <div className="space-y-3 mb-6">
-              {[
-                { icon: "Zap", text: "Без рекламы навсегда" },
-                { icon: "Image", text: "Отправка файлов до 2 ГБ" },
-                { icon: "Shield", text: "Приоритетная поддержка" },
-                { icon: "Star", text: "Эксклюзивные темы оформления" },
-                { icon: "Users", text: "Групповые звонки до 50 человек" },
-              ].map(f => (
-                <div key={f.icon} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(245,158,11,0.15)" }}>
-                    <Icon name={f.icon as string} size={16} style={{ color: "#f59e0b" }} />
-                  </div>
-                  <span className="text-sm font-medium">{f.text}</span>
-                </div>
-              ))}
-            </div>
-            <button className="w-full py-4 rounded-2xl font-black text-white text-base" style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
-              Оформить за 299 ₽/мес
-            </button>
-            <button onClick={() => setShowPro(false)} className="w-full py-3 text-sm text-muted-foreground mt-2">
-              Не сейчас
-            </button>
-          </div>
-        </div>
+      {/* Nova Pro panel */}
+      {showPro && currentUser && (
+        <ProPanel
+          currentUser={currentUser}
+          onClose={() => setShowPro(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+          onOpenWallet={() => { setShowPro(false); setShowWallet(true); }}
+        />
+      )}
+
+      {/* Wallet */}
+      {showWallet && currentUser && (
+        <WalletPanel
+          currentUser={currentUser}
+          onClose={() => setShowWallet(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Pro settings (эмодзи-статус, цвет, инкогнито, приватность) */}
+      {showProSettings && currentUser && (
+        <ProSettingsPanel
+          currentUser={currentUser}
+          onClose={() => setShowProSettings(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+          onOpenPro={() => { setShowProSettings(false); setShowPro(true); }}
+        />
       )}
 
       {/* Admin Panel */}
@@ -583,7 +579,16 @@ export default function Index() {
         ) : view === "contacts" ? (
           <ContactsPanel currentUser={currentUser} onStartChat={(chat) => { setSelectedChat(chat); setShowSidebar(false); }} onCall={startCall} onBack={() => { setView("chats"); setShowSidebar(true); }} />
         ) : view === "profile" ? (
-          <ProfilePanel onSettings={() => setView("settings")} currentUser={currentUser} onUserUpdate={(u) => { setCurrentUser(u); }} onBack={() => { setView("chats"); setShowSidebar(true); }} chatsCount={realChats.length} />
+          <ProfilePanel
+            onSettings={() => setView("settings")}
+            currentUser={currentUser}
+            onUserUpdate={(u) => { setCurrentUser(u); }}
+            onBack={() => { setView("chats"); setShowSidebar(true); }}
+            chatsCount={realChats.length}
+            onOpenWallet={() => setShowWallet(true)}
+            onOpenPro={() => setShowPro(true)}
+            onOpenProSettings={() => setShowProSettings(true)}
+          />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />
         ) : (

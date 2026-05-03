@@ -133,7 +133,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0 }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -469,6 +469,56 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
         ))}
       </div>
 
+      {/* Кошелёк */}
+      {onOpenWallet && (
+        <button onClick={onOpenWallet}
+          className="w-full mx-4 mb-3 rounded-2xl p-4 text-white relative overflow-hidden text-left"
+          style={{ background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%)", width: "calc(100% - 2rem)" }}>
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
+              <Icon name="Wallet" size={20} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="text-xs text-white/80 mb-0.5">Nova Кошелёк</div>
+              <div className="text-xl font-black">
+                {(currentUser.wallet_balance || 0).toLocaleString("ru", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+              </div>
+            </div>
+            <Icon name="ChevronRight" size={20} className="text-white/60" />
+          </div>
+        </button>
+      )}
+
+      {/* Pro статус */}
+      {onOpenPro && (
+        <button onClick={onOpenPro}
+          className="w-full mx-4 mb-4 rounded-2xl p-3 flex items-center gap-3 transition"
+          style={{
+            width: "calc(100% - 2rem)",
+            background: currentUser.is_pro
+              ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(249,115,22,0.15))"
+              : "rgba(255,255,255,0.05)",
+            border: currentUser.is_pro ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(255,255,255,0.08)",
+          }}>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
+            style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+            👑
+          </div>
+          <div className="flex-1 text-left">
+            <div className="text-sm font-bold">
+              {currentUser.is_pro ? "Nova Pro активен" : "Оформить Nova Pro"}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {currentUser.is_pro && currentUser.pro_until
+                ? `до ${new Date(currentUser.pro_until * 1000).toLocaleDateString("ru")}`
+                : "Эмодзи-статус, цвет ника, инкогнито и больше"}
+            </div>
+          </div>
+          <Icon name="ChevronRight" size={16} className="text-muted-foreground" />
+        </button>
+      )}
+
       {/* Invite link */}
       <div className="glass rounded-2xl p-4 border border-violet-500/20 mx-4 mb-4">
         <p className="text-sm font-semibold mb-1">Пригласить друзей</p>
@@ -492,6 +542,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       <div className="px-4 space-y-2 mb-6">
         {[
           { icon: "Edit3", label: "Редактировать профиль", sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
+          ...(onOpenProSettings ? [{ icon: "Sparkles", label: "Персонализация", sub: "Эмодзи-статус, цвет, инкогнито", action: onOpenProSettings }] : []),
           { icon: "Bell", label: "Уведомления", sub: "Звуки, вибрация", action: onSettings },
           { icon: "Shield", label: "Конфиденциальность", sub: "Блокировки, кто видит", action: onSettings },
           { icon: "Lock", label: "Шифрование", sub: "Управление ключами E2E", action: onSettings },

@@ -39,6 +39,22 @@
       "body": {"action": "send_group_message", "group_id": 1, "text": "hi"},
       "expectedStatus": 400,
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "wallet_balance requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "wallet_balance"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "buy_pro requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "buy_pro", "plan": "month"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
     }
   ]
 }
