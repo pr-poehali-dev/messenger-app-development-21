@@ -498,52 +498,55 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
 
       {/* Кошелёк */}
       {onOpenWallet && (
-        <button onClick={onOpenWallet}
-          className="w-full mx-4 mb-3 rounded-2xl p-4 text-white relative overflow-hidden text-left"
-          style={{ background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%)", width: "calc(100% - 2rem)" }}>
-          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
-          <div className="relative flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
-              <Icon name="Wallet" size={20} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <div className="text-xs text-white/80 mb-0.5">Nova Кошелёк</div>
-              <div className="text-xl font-black">
-                {(currentUser.wallet_balance || 0).toLocaleString("ru", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+        <div className="px-4 mb-3">
+          <button onClick={onOpenWallet}
+            className="w-full rounded-2xl p-4 text-white relative overflow-hidden text-left"
+            style={{ background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%)" }}>
+            <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+            <div className="relative flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
+                <Icon name="Wallet" size={20} className="text-white" />
               </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-white/80 mb-0.5">Nova Кошелёк</div>
+                <div className="text-xl font-black truncate">
+                  {(currentUser.wallet_balance || 0).toLocaleString("ru", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+                </div>
+              </div>
+              <Icon name="ChevronRight" size={20} className="text-white/60 flex-shrink-0" />
             </div>
-            <Icon name="ChevronRight" size={20} className="text-white/60" />
-          </div>
-        </button>
+          </button>
+        </div>
       )}
 
       {/* Pro статус */}
       {onOpenPro && (
-        <button onClick={onOpenPro}
-          className="w-full mx-4 mb-4 rounded-2xl p-3 flex items-center gap-3 transition"
-          style={{
-            width: "calc(100% - 2rem)",
-            background: currentUser.is_pro
-              ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(249,115,22,0.15))"
-              : "rgba(255,255,255,0.05)",
-            border: currentUser.is_pro ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(255,255,255,0.08)",
-          }}>
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
-            style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
-            👑
-          </div>
-          <div className="flex-1 text-left">
-            <div className="text-sm font-bold">
-              {currentUser.is_pro ? "Nova Pro активен" : "Оформить Nova Pro"}
+        <div className="px-4 mb-4">
+          <button onClick={onOpenPro}
+            className="w-full rounded-2xl p-3 flex items-center gap-3 transition"
+            style={{
+              background: currentUser.is_pro
+                ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(249,115,22,0.15))"
+                : "rgba(255,255,255,0.05)",
+              border: currentUser.is_pro ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(255,255,255,0.08)",
+            }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)" }}>
+              👑
             </div>
-            <div className="text-[11px] text-muted-foreground">
-              {currentUser.is_pro && currentUser.pro_until
-                ? `до ${new Date(currentUser.pro_until * 1000).toLocaleDateString("ru")}`
-                : "Эмодзи-статус, цвет ника, инкогнито и больше"}
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm font-bold truncate">
+                {currentUser.is_pro ? "Nova Pro активен" : "Оформить Nova Pro"}
+              </div>
+              <div className="text-[11px] text-muted-foreground truncate">
+                {currentUser.is_pro && currentUser.pro_until
+                  ? `до ${new Date(currentUser.pro_until * 1000).toLocaleDateString("ru")}`
+                  : "Эмодзи-статус, цвет ника, инкогнито и больше"}
+              </div>
             </div>
-          </div>
-          <Icon name="ChevronRight" size={16} className="text-muted-foreground" />
-        </button>
+            <Icon name="ChevronRight" size={16} className="text-muted-foreground flex-shrink-0" />
+          </button>
+        </div>
       )}
 
       {/* Invite link */}

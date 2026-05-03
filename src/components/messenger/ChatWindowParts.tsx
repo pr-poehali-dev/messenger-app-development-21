@@ -24,6 +24,8 @@ export function ChatHeader({
   onClearHistory,
   onBlock,
   onToggleArchive,
+  onSetDisappearing,
+  disappearingSeconds,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -41,6 +43,8 @@ export function ChatHeader({
   onClearHistory: () => void;
   onBlock: () => void;
   onToggleArchive: () => void;
+  onSetDisappearing?: () => void;
+  disappearingSeconds?: number | null;
 }) {
   const headerHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHeaderHold = () => {
@@ -85,6 +89,14 @@ export function ChatHeader({
     { icon: "Pin", label: chat.pinned ? "Открепить" : "Закрепить", active: chat.pinned, onClick: onTogglePin },
     { icon: "Star", label: chat.favorite ? "Убрать из избранного" : "В избранное", active: chat.favorite, onClick: onToggleFavorite },
     { icon: "Archive", label: chat.archived ? "Из архива" : "В архив", active: chat.archived, onClick: onToggleArchive },
+    ...(onSetDisappearing ? [{
+      icon: "Timer" as IconName,
+      label: disappearingSeconds
+        ? `Исчезают через: ${disappearingSeconds === 10 ? "10 с" : disappearingSeconds === 60 ? "1 мин" : disappearingSeconds === 300 ? "5 мин" : disappearingSeconds === 3600 ? "1 ч" : disappearingSeconds === 86400 ? "24 ч" : "7 дн"}`
+        : "Исчезающие сообщения",
+      active: !!disappearingSeconds,
+      onClick: onSetDisappearing,
+    }] : []),
     { icon: "Trash2", label: "Очистить историю", red: true, onClick: onClearHistory },
     { icon: "Ban", label: "Заблокировать", red: true, onClick: onBlock },
   ];

@@ -375,6 +375,15 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id")
 
+        # Удаляем истёкшие исчезающие сообщения (soft-remove)
+        now_ts = int(time.time())
+        cur.execute(
+            f"""UPDATE {SCHEMA}.messages
+                SET removed_at = %s
+                WHERE chat_id = %s AND expires_at IS NOT NULL AND expires_at <= %s AND removed_at IS NULL""",
+            (now_ts, int(chat_id), now_ts)
+        )
+
         cleared_at = 0
         if user_id:
             cur.execute(
@@ -390,7 +399,7 @@ def handler(event: dict, context) -> dict:
             f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
                        m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
                        m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at,
-                       COALESCE(m.kind, 'text'), m.payload_json
+                       COALESCE(m.kind, 'text'), m.payload_json, m.expires_at
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
@@ -461,6 +470,7 @@ def handler(event: dict, context) -> dict:
             "edited_at": r[15],
             "kind": r[16] or "text",
             "payload": _parse_payload(r[17]),
+            "expires_at": int(r[18]) if r[18] else None,
             "reactions": reactions_map.get(r[0], []),
         } for r in rows]
         return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
@@ -520,18 +530,23 @@ def handler(event: dict, context) -> dict:
         payload_str = json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else None
 
         now = int(time.time())
+        # Исчезающие сообщения
+        cur.execute(f"SELECT disappearing_seconds FROM {SCHEMA}.chats WHERE id=%s", (int(chat_id),))
+        rd = cur.fetchone()
+        ttl = int(rd[0]) if rd and rd[0] else None
+        expires_at = (now + ttl) if ttl and ttl > 0 else None
         cur.execute(
             f"""INSERT INTO {SCHEMA}.messages
                 (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at,
-                 reply_to_id, forwarded_from_user_id, forwarded_from_name, kind, payload_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                 reply_to_id, forwarded_from_user_id, forwarded_from_name, kind, payload_json, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (int(chat_id), int(user_id), text,
              media_url if media_type == "image" else None,
              media_type or None, media_url or None,
              file_name, file_size, duration, now,
              int(reply_to_id) if reply_to_id else None,
              int(forwarded_from_user_id) if forwarded_from_user_id else None,
-             forwarded_from_name, kind, payload_str)
+             forwarded_from_name, kind, payload_str, expires_at)
         )
         msg_id = cur.fetchone()[0]
         cur.execute(
@@ -2405,6 +2420,77 @@ def handler(event: dict, context) -> dict:
         my = [{"id": r[0], "title": r[1], "cover_url": r[2], "acquired_at": int(r[3])} for r in cur.fetchall()]
         conn.close()
         return ok({"packs": my})
+
+    # ── chat_set_disappearing ─────────────────────────────────────────────────
+    if action == "chat_set_disappearing":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+            seconds = body.get("seconds")
+            seconds = None if seconds in (None, 0, "0", "off", "") else int(seconds)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        if chat_id <= 0:
+            conn.close(); return err("Нужен chat_id")
+        # Проверяем, что юзер участник чата
+        cur.execute(
+            f"SELECT user1_id, user2_id FROM {SCHEMA}.chats WHERE id=%s",
+            (chat_id,)
+        )
+        cr = cur.fetchone()
+        if not cr:
+            conn.close(); return err("Чат не найден", 404)
+        if int(user_id) not in (cr[0], cr[1]):
+            conn.close(); return err("Нет доступа", 403)
+        # Допустимые значения: None, 10, 60, 300, 3600, 86400, 604800
+        ALLOWED = {10, 60, 300, 3600, 86400, 604800}
+        if seconds is not None and seconds not in ALLOWED:
+            conn.close(); return err("Недопустимое значение таймера")
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET disappearing_seconds=%s WHERE id=%s",
+            (seconds, chat_id)
+        )
+        # Системное сообщение в чат
+        now = int(time.time())
+        if seconds is None:
+            sys_text = "🕐 Исчезающие сообщения отключены"
+        else:
+            label = (
+                "10 секунд" if seconds == 10 else
+                "1 минута" if seconds == 60 else
+                "5 минут" if seconds == 300 else
+                "1 час" if seconds == 3600 else
+                "24 часа" if seconds == 86400 else
+                "7 дней"
+            )
+            sys_text = f"🕐 Включён таймер исчезновения: {label}"
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind, payload_json)
+                VALUES (%s,%s,%s,%s,'system',%s)""",
+            (chat_id, int(user_id), sys_text, now, json.dumps({"event": "disappearing", "seconds": seconds}, ensure_ascii=False))
+        )
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s",
+            (sys_text[:100], now, chat_id)
+        )
+        conn.close()
+        return ok({"chat_id": chat_id, "disappearing_seconds": seconds})
+
+    # ── chat_get_settings (узнать таймер чата) ────────────────────────────────
+    if action == "chat_get_settings":
+        try:
+            chat_id = int(body.get("chat_id") or params.get("chat_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        if chat_id <= 0:
+            conn.close(); return err("Нужен chat_id")
+        cur.execute(f"SELECT disappearing_seconds FROM {SCHEMA}.chats WHERE id=%s", (chat_id,))
+        cr = cur.fetchone()
+        if not cr:
+            conn.close(); return err("Чат не найден", 404)
+        conn.close()
+        return ok({"chat_id": chat_id, "disappearing_seconds": int(cr[0]) if cr[0] else None})
 
     # ── get_user_progress (XP, уровень, бейджи, последние события) ────────────
     if action == "get_user_progress":

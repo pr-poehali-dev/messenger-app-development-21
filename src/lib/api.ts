@@ -129,6 +129,7 @@ export interface Message {
   forwarded_from_user_id?: number | null;
   forwarded_from_name?: string | null;
   edited_at?: number | null;
+  expires_at?: number | null;
 }
 
 export interface Chat {

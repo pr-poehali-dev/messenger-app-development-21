@@ -1,8 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { api, avatarGrad, type Contact, type User, type Chat } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+
+type PickerContact = { name?: string[]; tel?: string[] };
+type ContactsManager = {
+  select: (props: string[], opts?: { multiple?: boolean }) => Promise<PickerContact[]>;
+  getProperties: () => Promise<string[]>;
+};
 
 export function ContactsPanel({
   currentUser,
@@ -27,6 +33,8 @@ export function ContactsPanel({
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<null | { added: number; total: number; not_registered: number }>(null);
   const [syncError, setSyncError] = useState("");
+  const [showImportHelp, setShowImportHelp] = useState(false);
+  const vcfInputRef = useRef<HTMLInputElement>(null);
 
   const loadContacts = async () => {
     setLoading(true);
@@ -53,20 +61,12 @@ export function ContactsPanel({
     setAdding(false);
   };
 
-  type PickerContact = { name?: string[]; tel?: string[] };
-  type ContactsManager = {
-    select: (props: string[], opts?: { multiple?: boolean }) => Promise<PickerContact[]>;
-    getProperties: () => Promise<string[]>;
-  };
-
   const syncPhoneContacts = async () => {
     setSyncError("");
     setSyncResult(null);
     const nav = navigator as Navigator & { contacts?: ContactsManager };
     if (!nav.contacts || typeof nav.contacts.select !== "function") {
-      setSyncError(
-        "Браузер устройства не поддерживает доступ к контактам. На iPhone и в десктопных браузерах доступ к телефонной книге через сайт пока невозможен. На Android Chrome — работает."
-      );
+      setShowImportHelp(true);
       return;
     }
     try {
@@ -105,6 +105,85 @@ export function ContactsPanel({
       setSyncError((e as Error).message || "Не удалось получить контакты");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const parseVcf = (text: string): { phone: string; name?: string }[] => {
+    const items: { phone: string; name?: string }[] = [];
+    // Каждый контакт — между BEGIN:VCARD и END:VCARD
+    const cards = text.split(/BEGIN:VCARD/i).slice(1);
+    for (const raw of cards) {
+      const block = raw.split(/END:VCARD/i)[0] || "";
+      // Склейка многострочных значений (продолжение начинается с пробела)
+      const lines = block.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+      let displayName: string | undefined;
+      let structuredName: string | undefined;
+      const phones: string[] = [];
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const colon = line.indexOf(":");
+        if (colon < 0) continue;
+        const left = line.slice(0, colon);
+        const value = line.slice(colon + 1).trim();
+        const upper = left.toUpperCase();
+        if (upper === "FN" || upper.startsWith("FN;")) {
+          displayName = value;
+        } else if (upper === "N" || upper.startsWith("N;")) {
+          // N: фамилия;имя;отчество;префикс;суффикс
+          const parts = value.split(";").map(p => p.trim()).filter(Boolean);
+          if (parts.length >= 2) structuredName = `${parts[1]} ${parts[0]}`.trim();
+          else if (parts.length === 1) structuredName = parts[0];
+        } else if (upper === "TEL" || upper.startsWith("TEL;") || upper.startsWith("TEL:")) {
+          const cleaned = value.replace(/[^\d+]/g, "");
+          if (cleaned.length >= 5) phones.push(cleaned);
+        }
+      }
+      const nm = displayName || structuredName;
+      for (const p of phones) {
+        items.push({ phone: p, name: nm });
+      }
+    }
+    return items;
+  };
+
+  const handleVcfFile = async (file: File) => {
+    setSyncError("");
+    setSyncResult(null);
+    try {
+      setSyncing(true);
+      const text = await file.text();
+      const items = parseVcf(text);
+      if (items.length === 0) {
+        setSyncError("В файле не найдено контактов с номерами. Убедись, что это .vcf (vCard).");
+        return;
+      }
+      const data = await api("import_contacts", { contacts: items }, currentUser.id);
+      if (data.ok) {
+        setSyncResult({
+          added: Number(data.added) || 0,
+          total: items.length,
+          not_registered: Array.isArray(data.not_registered) ? data.not_registered.length : 0,
+        });
+        await loadContacts();
+        try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(20); } catch { /* ignore */ }
+      } else {
+        setSyncError(data.error || "Не удалось импортировать контакты");
+      }
+    } catch (e) {
+      setSyncError((e as Error).message || "Не удалось прочитать файл");
+    } finally {
+      setSyncing(false);
+      if (vcfInputRef.current) vcfInputRef.current.value = "";
+    }
+  };
+
+  const startImport = () => {
+    const nav = navigator as Navigator & { contacts?: ContactsManager };
+    if (nav.contacts && typeof nav.contacts.select === "function") {
+      syncPhoneContacts();
+    } else {
+      // На iOS / десктопе — показываем подсказку и предлагаем .vcf
+      setShowImportHelp(true);
     }
   };
 
@@ -154,9 +233,9 @@ export function ContactsPanel({
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
-              onClick={syncPhoneContacts}
+              onClick={startImport}
               disabled={syncing}
-              title="Синхронизировать с контактами телефона"
+              title="Импортировать контакты"
               className="p-2 rounded-xl transition-all glass hover:bg-white/8 text-muted-foreground disabled:opacity-50"
             >
               {syncing ? (
@@ -251,12 +330,12 @@ export function ContactsPanel({
             <p className="font-semibold mb-1">Контактов пока нет</p>
             <p className="text-sm text-muted-foreground mb-4">Импортируй телефонную книгу или добавь номер вручную</p>
             <button
-              onClick={syncPhoneContacts}
+              onClick={startImport}
               disabled={syncing}
               className="grad-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold glow-primary transition-opacity hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
             >
               <Icon name="RefreshCw" size={16} />
-              {syncing ? "Синхронизируем..." : "Синхронизировать с телефоном"}
+              {syncing ? "Синхронизируем..." : "Импортировать контакты"}
             </button>
           </div>
         )}
@@ -300,6 +379,92 @@ export function ContactsPanel({
           </div>
         ))}
       </div>
+
+      <input
+        ref={vcfInputRef}
+        type="file"
+        accept=".vcf,text/vcard,text/x-vcard"
+        multiple
+        className="hidden"
+        onChange={async e => {
+          const files = Array.from(e.target.files || []);
+          for (const f of files) await handleVcfFile(f);
+        }}
+      />
+
+      {showImportHelp && (
+        <div
+          className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in"
+          onClick={() => setShowImportHelp(false)}
+        >
+          <div
+            className="w-full sm:max-w-md glass-strong rounded-t-3xl sm:rounded-3xl p-5 animate-slide-up"
+            style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl grad-primary flex items-center justify-center">
+                  <Icon name="Users" size={18} className="text-white" />
+                </div>
+                <h3 className="text-base font-bold">Импорт контактов</h3>
+              </div>
+              <button onClick={() => setShowImportHelp(false)} className="p-2 rounded-xl hover:bg-white/8">
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-muted-foreground mb-4">
+              Прямой доступ к телефонной книге работает только в Android Chrome. На iPhone, Mac и Windows используй файл vCard (.vcf).
+            </p>
+
+            <div className="glass rounded-2xl p-3 mb-3">
+              <div className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                <Icon name="Smartphone" size={12} className="text-violet-400" />
+                Как получить .vcf на iPhone
+              </div>
+              <ol className="text-[11px] text-muted-foreground space-y-1 list-decimal pl-4">
+                <li>Открой приложение «Контакты»</li>
+                <li>Нажми «Списки» → выбери «Все контакты»</li>
+                <li>Долгое нажатие → «Поделиться»</li>
+                <li>Выбери «Сохранить в Файлы» — получится .vcf</li>
+                <li>Загрузи его сюда кнопкой ниже</li>
+              </ol>
+            </div>
+
+            <div className="glass rounded-2xl p-3 mb-4">
+              <div className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                <Icon name="Monitor" size={12} className="text-violet-400" />
+                На Mac / Windows
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                В приложении «Контакты» (Mac) или «Люди» (Windows) выдели всех → «Экспорт» → формат vCard (.vcf).
+              </p>
+            </div>
+
+            <button
+              onClick={() => vcfInputRef.current?.click()}
+              disabled={syncing}
+              className="w-full grad-primary text-white rounded-2xl py-3 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {syncing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Загружаем...
+                </>
+              ) : (
+                <>
+                  <Icon name="Upload" size={16} />
+                  Загрузить .vcf файл
+                </>
+              )}
+            </button>
+            <p className="text-[10px] text-muted-foreground text-center mt-3">
+              Файл обрабатывается у тебя в браузере, мы загружаем только номера и имена.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

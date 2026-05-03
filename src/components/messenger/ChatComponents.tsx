@@ -14,6 +14,8 @@ import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import { GiftBubble, FundraiserBubble, StickerBubble } from "@/components/messenger/SpecialBubbles";
 import { GiftSendModal, FundraiserAttachModal } from "@/components/messenger/ChatGiftModals";
 import StickerPicker from "@/components/messenger/StickerPicker";
+import DisappearingModal from "@/components/messenger/DisappearingModal";
+import ExpiringIndicator from "@/components/messenger/ExpiringIndicator";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -65,6 +67,16 @@ export function ChatWindow({
   const [showGiftModal, setShowGiftModal] = useState(false);
   const [showFundModal, setShowFundModal] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [showDisappearing, setShowDisappearing] = useState(false);
+  const [disappearingSec, setDisappearingSec] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api("chat_get_settings", { chat_id: chat.id }, currentUser.id).then(r => {
+      if (!alive) return;
+      if (r && !r.error) setDisappearingSec(r.disappearing_seconds ?? null);
+    });
+    return () => { alive = false; };
+  }, [chat.id, currentUser.id]);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("Загружаем...");
   const [isTyping, setIsTyping] = useState(false);
@@ -453,6 +465,8 @@ export function ChatWindow({
         onClearHistory={handleClearHistory}
         onBlock={handleBlock}
         onToggleArchive={handleToggleArchive}
+        onSetDisappearing={() => setShowDisappearing(true)}
+        disappearingSeconds={disappearingSec}
       />
 
       {confirm && (
@@ -683,6 +697,7 @@ export function ChatWindow({
                       {msg.edited_at && (
                         <span className={`text-[10px] italic ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>изм.</span>
                       )}
+                      {msg.expires_at && <ExpiringIndicator expiresAt={msg.expires_at} out={msg.out} />}
                       <span className={`text-[10px] ${msg.out ? "text-white/70" : "text-muted-foreground"}`}>{msg.time}</span>
                       {msg.out && (
                         <Icon name={msg.read ? "CheckCheck" : "Check"} size={12} className={msg.read ? "text-sky-300" : "text-white/60"} />
@@ -787,6 +802,21 @@ export function ChatWindow({
           onClose={() => setShowFundModal(false)}
           onSent={() => { setLastSince(0); }}
           onCreate={() => { setShowFundModal(false); onOpenFundraiser?.(-1); }}
+        />
+      )}
+
+      {showDisappearing && (
+        <DisappearingModal
+          current={disappearingSec}
+          onClose={() => setShowDisappearing(false)}
+          onSelect={async (sec) => {
+            setShowDisappearing(false);
+            const r = await api("chat_set_disappearing", { chat_id: chat.id, seconds: sec ?? 0 }, currentUser.id);
+            if (r && !r.error) {
+              setDisappearingSec(sec);
+              setLastSince(0);
+            }
+          }}
         />
       )}
 
