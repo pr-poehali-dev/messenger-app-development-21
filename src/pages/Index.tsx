@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
-import { api, pushApi, urlBase64ToUint8Array, type View, type Tab, type Chat, type User, type Story, STORIES } from "@/lib/api";
+import { api, pushApi, urlBase64ToUint8Array, type View, type Tab, type Chat, type User, type Story, type Group, STORIES } from "@/lib/api";
 import { StoriesBar, ChatList, ChatWindow, Avatar } from "@/components/messenger/ChatComponents";
 import { StoryViewer, SearchPanel, ProfilePanel, SettingsPanel } from "@/components/messenger/Panels";
 import { AuthScreen } from "@/components/messenger/AuthScreen";
@@ -10,6 +10,8 @@ import { AdminPanel } from "@/components/messenger/AdminPanel";
 import InstallPrompt from "@/components/messenger/InstallPrompt";
 import ComingSoon from "@/components/messenger/ComingSoon";
 import { ChatFolders, filterChatsByFolder, useChatFolder } from "@/components/messenger/ChatFolders";
+import GroupCreateModal from "@/components/messenger/GroupCreateModal";
+import { GroupChatWindow } from "@/components/messenger/GroupChatWindow";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -45,6 +47,9 @@ export default function Index() {
   const [archivedCount, setArchivedCount] = useState(0);
   const [chatFolder, setChatFolder] = useChatFolder();
   const [showComingSoon, setShowComingSoon] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   // Push-подписка
   useEffect(() => {
@@ -131,6 +136,19 @@ export default function Index() {
     const interval = setInterval(loadChats, 5000);
     return () => clearInterval(interval);
   }, [currentUser, showArchived]);
+
+  // Загрузка групп
+  useEffect(() => {
+    if (!currentUser) return;
+    const loadGroups = () => {
+      api("get_groups", {}, currentUser.id).then(d => {
+        if (d.groups) setGroups(d.groups);
+      });
+    };
+    loadGroups();
+    const t = setInterval(loadGroups, 6000);
+    return () => clearInterval(t);
+  }, [currentUser]);
 
   // Загрузка пользователей для поиска
   useEffect(() => {
@@ -418,6 +436,57 @@ export default function Index() {
                 onSelect={handleSelectChat}
                 selectedId={selectedChat?.id}
               />
+
+              {/* Группы и каналы */}
+              {groups.filter(g => !searchQuery || g.name.toLowerCase().includes(searchQuery.toLowerCase())).length > 0 && (
+                <div className="px-4 pt-2 pb-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Группы и каналы</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {groups.filter(g => !searchQuery || g.name.toLowerCase().includes(searchQuery.toLowerCase())).map(g => (
+                      <button
+                        key={g.id}
+                        onClick={() => { setSelectedGroup(g); setSelectedChat(null); setShowSidebar(false); }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-all ${selectedGroup?.id === g.id ? "bg-white/8 glass" : "hover:bg-white/4"}`}
+                      >
+                        {g.avatar_url
+                          ? <img src={g.avatar_url} className="w-11 h-11 rounded-2xl object-cover flex-shrink-0" />
+                          : <div className="w-11 h-11 rounded-2xl grad-primary flex items-center justify-center flex-shrink-0">
+                              <Icon name={g.is_channel ? "Radio" : "Users"} size={18} className="text-white" />
+                            </div>
+                        }
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-sm truncate">{g.name}</span>
+                            {g.last_message_at ? (
+                              <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">
+                                {new Date(g.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate mt-0.5">
+                            {g.last_message || `${g.members_count ?? 0} участников`}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Кнопка создать группу/канал */}
+              <div className="px-4 pt-2 pb-2">
+                <button
+                  onClick={() => setShowCreateGroup(true)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition text-muted-foreground hover:text-foreground border border-dashed border-white/10"
+                >
+                  <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center flex-shrink-0">
+                    <Icon name="Plus" size={20} className="text-violet-400" />
+                  </div>
+                  <span className="text-sm font-medium">Создать группу или канал</span>
+                </button>
+              </div>
             </>
           )}
           {activeTab === "stories" && (
@@ -475,9 +544,19 @@ export default function Index() {
         flex-1 flex flex-col overflow-hidden
         transition-transform duration-300 ease-in-out
         absolute inset-0 md:relative
-        ${showSidebar && !selectedChat ? "translate-x-full md:translate-x-0" : "translate-x-0"}
+        ${showSidebar && !selectedChat && !selectedGroup ? "translate-x-full md:translate-x-0" : "translate-x-0"}
       `}>
-        {selectedChat ? (
+        {selectedGroup ? (
+          <GroupChatWindow
+            group={selectedGroup}
+            currentUser={currentUser}
+            onBack={() => { setSelectedGroup(null); setShowSidebar(true); }}
+            onGroupUpdated={(g) => {
+              setSelectedGroup(g);
+              setGroups(prev => prev.map(gr => gr.id === g.id ? { ...gr, ...g } : gr));
+            }}
+          />
+        ) : selectedChat ? (
           <ChatWindow
             chat={selectedChat}
             onBack={handleBack}
@@ -523,6 +602,21 @@ export default function Index() {
           </div>
         )}
       </main>
+
+      {/* GroupCreateModal */}
+      {currentUser && (
+        <GroupCreateModal
+          currentUser={currentUser}
+          open={showCreateGroup}
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={(g) => {
+            setGroups(prev => [g, ...prev]);
+            setSelectedGroup(g);
+            setSelectedChat(null);
+            setShowSidebar(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -17,10 +17,26 @@
       "bodyMatcher": "partial"
     },
     {
-      "name": "import_contacts requires X-User-Id",
+      "name": "create_group requires X-User-Id",
       "method": "POST",
       "path": "/",
-      "body": {"action": "import_contacts", "contacts": [{"phone": "79990000002", "name": "Test"}]},
+      "body": {"action": "create_group", "name": "Test Group"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "get_groups requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "get_groups"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "send_group_message requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "send_group_message", "group_id": 1, "text": "hi"},
       "expectedStatus": 400,
       "bodyMatcher": "partial"
     }

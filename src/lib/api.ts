@@ -139,6 +139,47 @@ export interface User {
   about?: string | null;
 }
 
+export interface Group {
+  id: number;
+  name: string;
+  description?: string;
+  avatar_url?: string | null;
+  owner_id: number;
+  is_channel: boolean;
+  invite_link?: string;
+  last_message?: string;
+  last_message_at?: number;
+  members_count?: number;
+}
+
+export interface GroupMember {
+  id: number;
+  name: string;
+  avatar_url?: string | null;
+  last_seen?: number;
+  role: "owner" | "admin" | "member" | "removed";
+  joined_at: number;
+}
+
+export interface GroupMessage {
+  id: number;
+  sender_id: number;
+  sender_name: string;
+  sender_avatar?: string | null;
+  text: string;
+  media_type?: "image" | "video" | "audio" | "file" | null;
+  media_url?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  duration?: number | null;
+  reply_to_id?: number | null;
+  created_at: number;
+  edited_at?: number | null;
+  kind?: string;
+  out: boolean;
+  time?: string;
+}
+
 export interface Story {
   id: number;
   name: string;

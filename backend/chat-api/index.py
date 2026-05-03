@@ -1157,5 +1157,309 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"id": new_id, "created_at": now})
 
+    # ── create_group ──────────────────────────────────────────────────────────
+    if action == "create_group":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        name = (body.get("name") or "").strip()
+        if not name:
+            conn.close()
+            return err("Укажите name")
+        description = (body.get("description") or "").strip()[:500]
+        avatar_url = body.get("avatar_url") or None
+        is_channel = bool(body.get("is_channel", False))
+        member_ids = body.get("member_ids") or []
+        now = int(time.time())
+        import secrets
+        invite = secrets.token_urlsafe(12)
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.groups
+                (name, description, avatar_url, owner_id, is_channel, invite_link, created_at, last_message_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (name, description, avatar_url, int(user_id), is_channel, invite, now, now)
+        )
+        group_id = cur.fetchone()[0]
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.group_members (group_id, user_id, role, joined_at) VALUES (%s, %s, 'owner', %s)",
+            (group_id, int(user_id), now)
+        )
+        for mid in member_ids:
+            try:
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.group_members (group_id, user_id, role, joined_at) VALUES (%s, %s, 'member', %s) ON CONFLICT DO NOTHING",
+                    (group_id, int(mid), now)
+                )
+            except Exception:
+                pass
+        conn.close()
+        return ok({"group": {"id": group_id, "name": name, "description": description,
+                             "avatar_url": avatar_url, "owner_id": int(user_id),
+                             "is_channel": is_channel, "invite_link": invite,
+                             "created_at": now, "members_count": 1 + len(member_ids)}})
+
+    # ── get_groups ────────────────────────────────────────────────────────────
+    if action == "get_groups":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT g.id, g.name, g.description, g.avatar_url, g.owner_id, g.is_channel,
+                       g.last_message, g.last_message_at, g.invite_link,
+                       COUNT(gm2.user_id) AS members_count
+                FROM {SCHEMA}.groups g
+                JOIN {SCHEMA}.group_members gm ON gm.group_id = g.id AND gm.user_id = %s
+                JOIN {SCHEMA}.group_members gm2 ON gm2.group_id = g.id
+                GROUP BY g.id
+                ORDER BY g.last_message_at DESC""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        groups = []
+        for r in rows:
+            groups.append({
+                "id": r[0], "name": r[1], "description": r[2], "avatar_url": r[3],
+                "owner_id": r[4], "is_channel": r[5], "last_message": r[6] or "",
+                "last_message_at": r[7], "invite_link": r[8], "members_count": r[9]
+            })
+        conn.close()
+        return ok({"groups": groups})
+
+    # ── get_group_messages ────────────────────────────────────────────────────
+    if action == "get_group_messages":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id") or params.get("group_id")
+        since = int(body.get("since") or params.get("since") or 0)
+        if not group_id:
+            conn.close()
+            return err("Укажите group_id")
+        cur.execute(
+            f"SELECT 1 FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        if not cur.fetchone():
+            conn.close()
+            return err("Нет доступа", 403)
+        cur.execute(
+            f"""SELECT m.id, m.sender_id, u.name, u.avatar_url, m.text,
+                       m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
+                       m.reply_to_id, m.created_at, m.edited_at, m.kind
+                FROM {SCHEMA}.group_messages m
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE m.group_id = %s AND m.removed_at IS NULL AND m.created_at > %s
+                ORDER BY m.created_at ASC
+                LIMIT 200""",
+            (int(group_id), since)
+        )
+        rows = cur.fetchall()
+        messages = []
+        for r in rows:
+            messages.append({
+                "id": r[0], "sender_id": r[1], "sender_name": r[2],
+                "sender_avatar": r[3], "text": r[4] or "",
+                "media_type": r[5], "media_url": r[6],
+                "file_name": r[7], "file_size": r[8], "duration": r[9],
+                "reply_to_id": r[10], "created_at": r[11],
+                "edited_at": r[12], "kind": r[13] or "text",
+                "out": r[1] == int(user_id)
+            })
+        conn.close()
+        return ok({"messages": messages})
+
+    # ── send_group_message ────────────────────────────────────────────────────
+    if action == "send_group_message":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id")
+        text = (body.get("text") or "").strip()
+        media_type = body.get("media_type")
+        media_url = body.get("media_url")
+        file_name = body.get("file_name")
+        file_size = body.get("file_size")
+        duration = body.get("duration")
+        reply_to_id = body.get("reply_to_id")
+        if not group_id:
+            conn.close()
+            return err("Укажите group_id")
+        if not text and not media_url:
+            conn.close()
+            return err("Укажите text или media_url")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        member = cur.fetchone()
+        if not member:
+            conn.close()
+            return err("Нет доступа", 403)
+        cur.execute(
+            f"SELECT is_channel FROM {SCHEMA}.groups WHERE id=%s", (int(group_id),)
+        )
+        g = cur.fetchone()
+        if g and g[0] and member[0] not in ('owner', 'admin'):
+            conn.close()
+            return err("В канал могут писать только владельцы и администраторы", 403)
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.group_messages
+                (group_id, sender_id, text, media_type, media_url, file_name, file_size, duration, reply_to_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (int(group_id), int(user_id), text or "", media_type, media_url,
+             file_name, file_size, duration, reply_to_id, now)
+        )
+        msg_id = cur.fetchone()[0]
+        last_msg = text[:100] if text else ("[медиа]")
+        cur.execute(
+            f"UPDATE {SCHEMA}.groups SET last_message=%s, last_message_at=%s WHERE id=%s",
+            (last_msg, now, int(group_id))
+        )
+        conn.close()
+        return ok({"id": msg_id, "created_at": now})
+
+    # ── get_group_members ─────────────────────────────────────────────────────
+    if action == "get_group_members":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id") or params.get("group_id")
+        if not group_id:
+            conn.close()
+            return err("Укажите group_id")
+        cur.execute(
+            f"SELECT 1 FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        if not cur.fetchone():
+            conn.close()
+            return err("Нет доступа", 403)
+        cur.execute(
+            f"""SELECT u.id, u.name, u.avatar_url, u.last_seen, gm.role, gm.joined_at
+                FROM {SCHEMA}.group_members gm
+                JOIN {SCHEMA}.users u ON u.id = gm.user_id
+                WHERE gm.group_id = %s
+                ORDER BY gm.role DESC, gm.joined_at ASC""",
+            (int(group_id),)
+        )
+        rows = cur.fetchall()
+        members = [{"id": r[0], "name": r[1], "avatar_url": r[2],
+                    "last_seen": r[3], "role": r[4], "joined_at": r[5]} for r in rows]
+        conn.close()
+        return ok({"members": members})
+
+    # ── add_group_member ──────────────────────────────────────────────────────
+    if action == "add_group_member":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id")
+        new_user_id = body.get("new_user_id")
+        if not group_id or not new_user_id:
+            conn.close()
+            return err("Укажите group_id и new_user_id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] not in ('owner', 'admin'):
+            conn.close()
+            return err("Только владелец или администратор может добавлять участников", 403)
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.group_members (group_id, user_id, role, joined_at)
+                VALUES (%s, %s, 'member', %s) ON CONFLICT (group_id, user_id) DO NOTHING""",
+            (int(group_id), int(new_user_id), now)
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── remove_group_member ───────────────────────────────────────────────────
+    if action == "remove_group_member":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id")
+        kick_user_id = body.get("kick_user_id")
+        if not group_id:
+            conn.close()
+            return err("Укажите group_id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        me = cur.fetchone()
+        is_self_leave = str(kick_user_id) == str(user_id)
+        if not is_self_leave and (not me or me[0] not in ('owner', 'admin')):
+            conn.close()
+            return err("Недостаточно прав", 403)
+        cur.execute(
+            f"UPDATE {SCHEMA}.group_members SET role='removed' WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(kick_user_id or user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── update_group ──────────────────────────────────────────────────────────
+    if action == "update_group":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id")
+        if not group_id:
+            conn.close()
+            return err("Укажите group_id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] not in ('owner', 'admin'):
+            conn.close()
+            return err("Только владелец или администратор", 403)
+        fields = []
+        vals = []
+        if "name" in body and body["name"].strip():
+            fields.append("name=%s"); vals.append(body["name"].strip()[:100])
+        if "description" in body:
+            fields.append("description=%s"); vals.append((body["description"] or "").strip()[:500])
+        if "avatar_url" in body:
+            fields.append("avatar_url=%s"); vals.append(body["avatar_url"] or None)
+        if not fields:
+            conn.close()
+            return err("Нет полей для обновления")
+        vals.append(int(group_id))
+        cur.execute(f"UPDATE {SCHEMA}.groups SET {', '.join(fields)} WHERE id=%s", vals)
+        conn.close()
+        return ok({"ok": True})
+
+    # ── set_member_role ───────────────────────────────────────────────────────
+    if action == "set_member_role":
+        if not user_id:
+            conn.close()
+            return err("Нужен X-User-Id")
+        group_id = body.get("group_id")
+        target_id = body.get("target_user_id")
+        role = body.get("role")
+        if not group_id or not target_id or role not in ("admin", "member"):
+            conn.close()
+            return err("Укажите group_id, target_user_id, role (admin/member)")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (int(group_id), int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] != 'owner':
+            conn.close()
+            return err("Только владелец может менять роли", 403)
+        cur.execute(
+            f"UPDATE {SCHEMA}.group_members SET role=%s WHERE group_id=%s AND user_id=%s",
+            (role, int(group_id), int(target_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
     conn.close()
     return err("Неизвестный action")
