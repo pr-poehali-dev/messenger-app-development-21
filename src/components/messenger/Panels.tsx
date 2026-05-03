@@ -154,6 +154,35 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       }
     } catch { /* ignore */ } finally { setSavingAbout(false); }
   };
+
+  // Пол и дата рождения
+  const [savingMeta, setSavingMeta] = useState(false);
+  const updateField = async (field: "gender" | "birthdate", value: string | null) => {
+    setSavingMeta(true);
+    try {
+      const data = await api("update_profile", { [field]: value }, currentUser.id);
+      if (data.user) {
+        onUserUpdate?.(data.user);
+        localStorage.setItem("nova_user", JSON.stringify(data.user));
+      }
+    } catch { /* ignore */ } finally { setSavingMeta(false); }
+  };
+  const formatBirthdate = (iso?: string | null) => {
+    if (!iso) return "Не указана";
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d.getTime())) return "Не указана";
+    return d.toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" });
+  };
+  const calcAge = (iso?: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+    return age;
+  };
   const [theme, setTheme] = useState<ThemeId>(() => getStoredTheme());
   const [fontSize, setFontSize] = useState<number>(() => getStoredFontSize());
   const [contactsCount, setContactsCount] = useState<number>(0);
@@ -353,6 +382,77 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
             <Icon name="Pencil" size={13} className="text-muted-foreground group-hover:text-violet-400 mt-0.5 flex-shrink-0" />
           </button>
         )}
+
+        {/* Пол и дата рождения */}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {/* Пол */}
+          <div className="glass rounded-2xl p-3">
+            <div className="text-[11px] text-muted-foreground mb-1.5 flex items-center gap-1.5">
+              <Icon name="User" size={11} />
+              Пол
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={() => updateField("gender", currentUser.gender === "male" ? null : "male")}
+                disabled={savingMeta}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  currentUser.gender === "male"
+                    ? "grad-primary text-white"
+                    : "bg-white/5 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                <Icon name="Mars" size={12} className="inline mr-1" fallback="User" />
+                М
+              </button>
+              <button
+                onClick={() => updateField("gender", currentUser.gender === "female" ? null : "female")}
+                disabled={savingMeta}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  currentUser.gender === "female"
+                    ? "bg-pink-500 text-white"
+                    : "bg-white/5 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                <Icon name="Venus" size={12} className="inline mr-1" fallback="User" />
+                Ж
+              </button>
+            </div>
+          </div>
+
+          {/* Дата рождения */}
+          <div className="glass rounded-2xl p-3">
+            <div className="text-[11px] text-muted-foreground mb-1.5 flex items-center gap-1.5">
+              <Icon name="Cake" size={11} />
+              Дата рождения
+            </div>
+            <label className="block cursor-pointer">
+              <input
+                type="date"
+                value={currentUser.birthdate || ""}
+                max={new Date().toISOString().slice(0, 10)}
+                min="1920-01-01"
+                onChange={(e) => updateField("birthdate", e.target.value || null)}
+                className="sr-only"
+              />
+              <div className="text-xs font-semibold text-foreground truncate">
+                {formatBirthdate(currentUser.birthdate)}
+              </div>
+              {calcAge(currentUser.birthdate) !== null && (
+                <div className="text-[10px] text-violet-400 mt-0.5">
+                  {calcAge(currentUser.birthdate)} {(() => {
+                    const a = calcAge(currentUser.birthdate)!;
+                    const m = a % 100;
+                    if (m >= 11 && m <= 14) return "лет";
+                    const l = a % 10;
+                    if (l === 1) return "год";
+                    if (l >= 2 && l <= 4) return "года";
+                    return "лет";
+                  })()}
+                </div>
+              )}
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Stats */}

@@ -255,7 +255,7 @@ export default function Index() {
   };
 
   return (
-    <div className="h-screen flex overflow-hidden relative">
+    <div className="flex overflow-hidden relative" style={{ height: "100dvh", minHeight: "100dvh" }}>
       {/* Mesh background */}
       <div className="mesh-bg" />
 

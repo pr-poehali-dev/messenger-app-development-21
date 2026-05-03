@@ -137,6 +137,8 @@ export interface User {
   avatar_url?: string;
   last_seen?: number;
   about?: string | null;
+  gender?: "male" | "female" | null;
+  birthdate?: string | null;
 }
 
 export interface Group {
