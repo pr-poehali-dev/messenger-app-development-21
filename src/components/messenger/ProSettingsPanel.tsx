@@ -114,18 +114,22 @@ export default function ProSettingsPanel({ currentUser, onClose, onUserUpdate, o
             {NAME_COLORS.map(c => (
               <button
                 key={c.name}
-                disabled={!isPro}
-                onClick={() => update({ name_color: c.value })}
+                onClick={() => isPro ? update({ name_color: c.value }) : onOpenPro?.()}
                 className={`p-3 rounded-xl text-xs font-bold transition ${
                   currentUser.name_color === c.value
                     ? "bg-white/15 ring-2 ring-violet-400"
                     : "bg-white/5 hover:bg-white/10"
-                } ${!isPro ? "opacity-40 cursor-not-allowed" : ""}`}
+                } ${!isPro ? "opacity-60" : ""}`}
                 style={{ color: c.value || undefined }}>
                 {c.name}
               </button>
             ))}
           </div>
+          {!isPro && (
+            <p className="text-[11px] text-amber-300/80 mt-2 px-1">
+              Цвет имени работает только с Nova Pro. Нажми на цвет — откроется оформление.
+            </p>
+          )}
         </div>
 
         {/* Инкогнито */}

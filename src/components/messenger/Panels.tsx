@@ -169,19 +169,47 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
   };
   const formatBirthdate = (iso?: string | null) => {
     if (!iso) return "Не указана";
-    const d = new Date(iso + "T00:00:00");
-    if (isNaN(d.getTime())) return "Не указана";
-    return d.toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" });
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return "Не указана";
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = parseInt(m[3], 10);
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return "Не указана";
+    const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    return `${day} ${months[month - 1]} ${year} г.`;
   };
   const calcAge = (iso?: string | null) => {
     if (!iso) return null;
-    const d = new Date(iso + "T00:00:00");
-    if (isNaN(d.getTime())) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return null;
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = parseInt(m[3], 10);
+    if (year < 1900 || year > 2100) return null;
     const now = new Date();
-    let age = now.getFullYear() - d.getFullYear();
-    const m = now.getMonth() - d.getMonth();
-    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+    let age = now.getFullYear() - year;
+    const dm = now.getMonth() + 1 - month;
+    if (dm < 0 || (dm === 0 && now.getDate() < day)) age--;
+    if (age < 0 || age > 150) return null;
     return age;
+  };
+  const [bdayPickerOpen, setBdayPickerOpen] = useState(false);
+  const parseBd = (iso?: string | null) => {
+    const m = iso ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;
+    return m ? { d: parseInt(m[3]), mo: parseInt(m[2]), y: parseInt(m[1]) } : { d: 1, mo: 1, y: 2000 };
+  };
+  const initBd = parseBd(currentUser.birthdate);
+  const [bdDay, setBdDay] = useState<number>(initBd.d);
+  const [bdMonth, setBdMonth] = useState<number>(initBd.mo);
+  const [bdYear, setBdYear] = useState<number>(initBd.y);
+  const saveBirthdate = async () => {
+    const iso = `${bdYear}-${String(bdMonth).padStart(2, "0")}-${String(bdDay).padStart(2, "0")}`;
+    await updateField("birthdate", iso);
+    setBdayPickerOpen(false);
+  };
+  const clearBirthdate = async () => {
+    await updateField("birthdate", null);
+    setBdayPickerOpen(false);
   };
   const [theme, setTheme] = useState<ThemeId>(() => getStoredTheme());
   const [fontSize, setFontSize] = useState<number>(() => getStoredFontSize());
@@ -335,7 +363,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
           </div>
         ) : (
           <div className="flex items-center justify-center gap-2 mt-1">
-            <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+            <h2 className="text-2xl font-bold" style={{ color: currentUser.name_color || undefined }}>{currentUser.name}</h2>
             <button onClick={() => { setEditName(currentUser.name); setEditing(true); }} className="p-1 text-muted-foreground hover:text-violet-400 transition-colors">
               <Icon name="Pencil" size={14} />
             </button>
@@ -420,38 +448,35 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
           </div>
 
           {/* Дата рождения */}
-          <div className="glass rounded-2xl p-3">
+          <button
+            onClick={() => {
+              const b = parseBd(currentUser.birthdate);
+              setBdDay(b.d); setBdMonth(b.mo); setBdYear(b.y);
+              setBdayPickerOpen(true);
+            }}
+            className="glass rounded-2xl p-3 text-left active:scale-[0.98] transition"
+          >
             <div className="text-[11px] text-muted-foreground mb-1.5 flex items-center gap-1.5">
               <Icon name="Cake" size={11} />
               Дата рождения
             </div>
-            <label className="block cursor-pointer">
-              <input
-                type="date"
-                value={currentUser.birthdate || ""}
-                max={new Date().toISOString().slice(0, 10)}
-                min="1920-01-01"
-                onChange={(e) => updateField("birthdate", e.target.value || null)}
-                className="sr-only"
-              />
-              <div className="text-xs font-semibold text-foreground truncate">
-                {formatBirthdate(currentUser.birthdate)}
+            <div className="text-xs font-semibold text-foreground truncate">
+              {formatBirthdate(currentUser.birthdate)}
+            </div>
+            {calcAge(currentUser.birthdate) !== null && (
+              <div className="text-[10px] text-violet-400 mt-0.5">
+                {calcAge(currentUser.birthdate)} {(() => {
+                  const a = calcAge(currentUser.birthdate)!;
+                  const m = a % 100;
+                  if (m >= 11 && m <= 14) return "лет";
+                  const l = a % 10;
+                  if (l === 1) return "год";
+                  if (l >= 2 && l <= 4) return "года";
+                  return "лет";
+                })()}
               </div>
-              {calcAge(currentUser.birthdate) !== null && (
-                <div className="text-[10px] text-violet-400 mt-0.5">
-                  {calcAge(currentUser.birthdate)} {(() => {
-                    const a = calcAge(currentUser.birthdate)!;
-                    const m = a % 100;
-                    if (m >= 11 && m <= 14) return "лет";
-                    const l = a % 10;
-                    if (l === 1) return "год";
-                    if (l >= 2 && l <= 4) return "года";
-                    return "лет";
-                  })()}
-                </div>
-              )}
-            </label>
-          </div>
+            )}
+          </button>
         </div>
       </div>
 
@@ -539,7 +564,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       </div>
 
       {/* Actions */}
-      <div className="px-4 space-y-2 mb-6">
+      <div className="px-4 space-y-2 mb-6" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom) + 80px)" }}>
         {[
           { icon: "Edit3", label: "Редактировать профиль", sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
           ...(onOpenProSettings ? [{ icon: "Sparkles", label: "Персонализация", sub: "Эмодзи-статус, цвет, инкогнито", action: onOpenProSettings }] : []),
@@ -609,6 +634,71 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
           </div>
         </div>
       )}
+
+      {/* Birthday picker */}
+      {bdayPickerOpen && (() => {
+        const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+        const currentYear = new Date().getFullYear();
+        const years: number[] = [];
+        for (let y = currentYear; y >= 1920; y--) years.push(y);
+        const daysInMonth = new Date(bdYear, bdMonth, 0).getDate();
+        const days: number[] = [];
+        for (let d = 1; d <= daysInMonth; d++) days.push(d);
+        const dayValid = bdDay <= daysInMonth ? bdDay : daysInMonth;
+        return (
+          <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-4 animate-fade-in" onClick={() => setBdayPickerOpen(false)}>
+            <div className="glass-strong rounded-3xl p-5 w-full max-w-sm animate-scale-in" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <Icon name="Cake" size={18} className="text-violet-400" />
+                  Дата рождения
+                </h3>
+                <button onClick={() => setBdayPickerOpen(false)} className="p-1.5 rounded-lg hover:bg-white/8">
+                  <Icon name="X" size={18} />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1 px-1">День</div>
+                  <select value={dayValid} onChange={e => setBdDay(parseInt(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-3 text-sm font-semibold outline-none">
+                    {days.map(d => <option key={d} value={d} className="bg-zinc-900">{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1 px-1">Месяц</div>
+                  <select value={bdMonth} onChange={e => setBdMonth(parseInt(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-3 text-sm font-semibold outline-none">
+                    {months.map((m, i) => <option key={m} value={i + 1} className="bg-zinc-900">{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1 px-1">Год</div>
+                  <select value={bdYear} onChange={e => setBdYear(parseInt(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-3 text-sm font-semibold outline-none">
+                    {years.map(y => <option key={y} value={y} className="bg-zinc-900">{y}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="text-center text-sm text-violet-300 font-semibold mb-4">
+                {dayValid} {months[bdMonth - 1].toLowerCase()} {bdYear} г.
+              </div>
+              <div className="flex gap-2">
+                {currentUser.birthdate && (
+                  <button onClick={clearBirthdate}
+                    className="flex-1 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-sm font-semibold text-muted-foreground">
+                    Очистить
+                  </button>
+                )}
+                <button onClick={saveBirthdate} disabled={savingMeta}
+                  className="flex-1 py-3 rounded-2xl grad-primary text-white font-bold text-sm disabled:opacity-60">
+                  {savingMeta ? "Сохраняем..." : "Сохранить"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
