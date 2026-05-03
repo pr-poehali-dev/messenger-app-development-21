@@ -313,6 +313,8 @@ export function ChatInput({
   onCancelEdit,
   onSendGift,
   onAttachFundraiser,
+  onOpenStickerPicker,
+  stickerPickerSlot,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -335,6 +337,8 @@ export function ChatInput({
   onCancelEdit?: () => void;
   onSendGift?: () => void;
   onAttachFundraiser?: () => void;
+  onOpenStickerPicker?: () => void;
+  stickerPickerSlot?: React.ReactNode;
 }) {
   const [showEmoji, setShowEmoji] = useState(false);
   return (
@@ -414,8 +418,18 @@ export function ChatInput({
               <span className="text-[10px] text-muted-foreground">Сбор</span>
             </button>
           )}
+          {onOpenStickerPicker && (
+            <button
+              onClick={onOpenStickerPicker}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name="Palette" size={20} className="text-pink-400" />
+              <span className="text-[10px] text-muted-foreground">Стикеры</span>
+            </button>
+          )}
         </div>
       )}
+      {stickerPickerSlot}
       {uploading && (
         <div className="flex items-center gap-2 mb-2 px-1 animate-fade-in">
           <div className="w-4 h-4 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />

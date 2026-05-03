@@ -13,6 +13,7 @@ import { LinkifiedText, extractFirstUrl, getDomain } from "@/components/messenge
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import { GiftBubble, FundraiserBubble, StickerBubble } from "@/components/messenger/SpecialBubbles";
 import { GiftSendModal, FundraiserAttachModal } from "@/components/messenger/ChatGiftModals";
+import StickerPicker from "@/components/messenger/StickerPicker";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -30,7 +31,7 @@ const isMediaPlaceholder = (text: string) =>
 
 export function ChatWindow({
   chat, onBack, currentUser, onCall, onVideoCall, onChatUpdated, onChatDeleted,
-  onOpenFundraiser, onUserUpdate,
+  onOpenFundraiser, onUserUpdate, onOpenStickersStore,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -41,6 +42,7 @@ export function ChatWindow({
   onChatDeleted?: () => void;
   onOpenFundraiser?: (id: number) => void;
   onUserUpdate?: (u: User) => void;
+  onOpenStickersStore?: () => void;
 }) {
   useEdgeSwipeBack(onBack);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -62,6 +64,7 @@ export function ChatWindow({
   const [lastSince, setLastSince] = useState(0);
   const [showGiftModal, setShowGiftModal] = useState(false);
   const [showFundModal, setShowFundModal] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("Загружаем...");
   const [isTyping, setIsTyping] = useState(false);
@@ -747,6 +750,24 @@ export function ChatWindow({
         onCancelEdit={() => { setEditing(null); setInput(""); }}
         onSendGift={() => { setShowAttach(false); setShowGiftModal(true); }}
         onAttachFundraiser={() => { setShowAttach(false); setShowFundModal(true); }}
+        onOpenStickerPicker={() => { setShowAttach(false); setShowStickerPicker(p => !p); }}
+        stickerPickerSlot={showStickerPicker ? (
+          <StickerPicker
+            currentUser={currentUser}
+            onClose={() => setShowStickerPicker(false)}
+            onOpenStore={() => { setShowStickerPicker(false); onOpenStickersStore?.(); }}
+            onPick={async (it) => {
+              setShowStickerPicker(false);
+              await api("send_message", {
+                chat_id: chat.id,
+                kind: "sticker",
+                payload: it,
+                text: "🎨 Стикер",
+              }, currentUser.id);
+              setLastSince(0);
+            }}
+          />
+        ) : null}
       />
 
       {showGiftModal && (

@@ -27,7 +27,7 @@ def err(msg, code=400):
     return {"statusCode": code, "headers": CORS, "body": json.dumps({"error": msg}, ensure_ascii=False)}
 
 
-USER_COLS = "id, phone, name, avatar_url, created_at, about, gender, birthdate, COALESCE(wallet_balance, 0), pro_until, emoji_status, name_color, COALESCE(incognito, FALSE), COALESCE(who_can_message, 'everyone'), COALESCE(who_can_call, 'everyone'), COALESCE(lightning_balance, 0), COALESCE(pro_trial_used, FALSE), stickers_subscription_until"
+USER_COLS = "id, phone, name, avatar_url, created_at, about, gender, birthdate, COALESCE(wallet_balance, 0), pro_until, emoji_status, name_color, COALESCE(incognito, FALSE), COALESCE(who_can_message, 'everyone'), COALESCE(who_can_call, 'everyone'), COALESCE(lightning_balance, 0), COALESCE(pro_trial_used, FALSE), stickers_subscription_until, COALESCE(xp, 0), COALESCE(level, 1), COALESCE(daily_streak, 0)"
 
 
 def serialize_user(row):
@@ -47,7 +47,129 @@ def serialize_user(row):
         "lightning_balance": int(row[15]) if len(row) > 15 and row[15] is not None else 0,
         "pro_trial_used": bool(row[16]) if len(row) > 16 else False,
         "stickers_subscription_until": int(row[17]) if len(row) > 17 and row[17] else None,
+        "xp": int(row[18]) if len(row) > 18 and row[18] is not None else 0,
+        "level": int(row[19]) if len(row) > 19 and row[19] is not None else 1,
+        "daily_streak": int(row[20]) if len(row) > 20 and row[20] is not None else 0,
     }
+
+
+# ─── XP / Level / Badges ────────────────────────────────────────────────────
+
+XP_DAILY_LIMITS = {"message": 30, "received_message": 50}
+XP_PER = {
+    "message": 1, "received_message": 1, "first_message_in_chat": 5,
+    "lightning_sent": 3, "lightning_received": 5,
+    "fundraiser_created": 50, "fundraiser_donate": 10,
+    "sticker_pack_buy": 20, "sticker_sent": 1,
+    "pro_purchased": 200, "daily_login": 10, "registered": 25,
+}
+BADGES = {
+    "newcomer":       {"title": "Новичок",      "icon": "Sparkles",      "desc": "Зарегистрировался в Nova"},
+    "talker":         {"title": "Болтун",       "icon": "MessageCircle", "desc": "Отправил 100 сообщений"},
+    "social":         {"title": "Социальный",   "icon": "Users",         "desc": "Завёл 5 чатов"},
+    "generous":       {"title": "Щедрый",       "icon": "Gift",          "desc": "Подарил 100 ⚡"},
+    "philanthropist": {"title": "Филантроп",    "icon": "HandHeart",     "desc": "Поддержал 3 сбора"},
+    "fundraiser":     {"title": "Активист",     "icon": "Megaphone",     "desc": "Создал свой сбор"},
+    "collector":      {"title": "Коллекционер", "icon": "Palette",       "desc": "Купил 3 стикерпака"},
+    "pro":            {"title": "Pro-юзер",     "icon": "Crown",         "desc": "Оформил Nova Pro"},
+    "veteran":        {"title": "Ветеран",      "icon": "Award",         "desc": "Достиг 10 уровня"},
+    "legend":         {"title": "Легенда",      "icon": "Trophy",        "desc": "Достиг 25 уровня"},
+    "streak_7":       {"title": "Неделя в Nova","icon": "Flame",         "desc": "7 дней подряд"},
+    "streak_30":      {"title": "Месяц в Nova", "icon": "Star",          "desc": "30 дней подряд"},
+}
+
+
+def _level_from_xp(xp: int) -> int:
+    if xp <= 0:
+        return 1
+    import math
+    return int(math.floor(math.sqrt(xp / 50.0))) + 1
+
+
+def _xp_for_level(level: int) -> int:
+    if level <= 1:
+        return 0
+    return (level - 1) * (level - 1) * 50
+
+
+def _award_badge(cur, user_id: int, code: str) -> bool:
+    if code not in BADGES:
+        return False
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.user_badges (user_id, badge_code, earned_at)
+            VALUES (%s,%s,%s) ON CONFLICT (user_id, badge_code) DO NOTHING""",
+        (user_id, code, int(time.time()))
+    )
+    return True
+
+
+def _grant_xp(cur, user_id: int, reason: str, amount: int = None) -> dict:
+    if amount is None:
+        amount = XP_PER.get(reason, 0)
+    if amount <= 0 or not user_id:
+        return {"gained": 0}
+    now = int(time.time())
+    day = now // 86400
+    limit = XP_DAILY_LIMITS.get(reason)
+    if limit is not None:
+        cur.execute(
+            f"SELECT count FROM {SCHEMA}.xp_daily_counters WHERE user_id=%s AND day=%s AND reason=%s",
+            (int(user_id), day, reason)
+        )
+        rr = cur.fetchone()
+        used = int(rr[0]) if rr else 0
+        if used >= limit:
+            return {"gained": 0}
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.xp_daily_counters (user_id, day, reason, count)
+                VALUES (%s,%s,%s,1)
+                ON CONFLICT (user_id, day, reason) DO UPDATE SET count = {SCHEMA}.xp_daily_counters.count + 1""",
+            (int(user_id), day, reason)
+        )
+    cur.execute(f"SELECT COALESCE(xp,0), COALESCE(level,1) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+    r = cur.fetchone()
+    if not r:
+        return {"gained": 0}
+    cur_xp = int(r[0] or 0); cur_level = int(r[1] or 1)
+    new_xp = cur_xp + amount
+    new_level = _level_from_xp(new_xp)
+    cur.execute(f"UPDATE {SCHEMA}.users SET xp=%s, level=%s WHERE id=%s", (new_xp, new_level, int(user_id)))
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.xp_events (user_id, amount, reason, created_at)
+            VALUES (%s,%s,%s,%s)""",
+        (int(user_id), amount, reason, now)
+    )
+    leveled_up = new_level > cur_level
+    if leveled_up:
+        if new_level >= 10:
+            _award_badge(cur, int(user_id), "veteran")
+        if new_level >= 25:
+            _award_badge(cur, int(user_id), "legend")
+    return {"gained": amount, "leveled_up": leveled_up, "new_level": new_level, "new_xp": new_xp}
+
+
+def _maybe_streak_bonus(cur, user_id: int) -> int:
+    now = int(time.time())
+    day = now // 86400
+    cur.execute(f"SELECT COALESCE(daily_streak,0), last_active_day FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+    r = cur.fetchone()
+    if not r:
+        return 0
+    streak = int(r[0] or 0)
+    last_day = int(r[1]) if r[1] else None
+    if last_day == day:
+        return streak
+    if last_day is not None and last_day == day - 1:
+        streak += 1
+    else:
+        streak = 1
+    cur.execute(f"UPDATE {SCHEMA}.users SET daily_streak=%s, last_active_day=%s WHERE id=%s", (streak, day, int(user_id)))
+    _grant_xp(cur, int(user_id), "daily_login")
+    if streak >= 7:
+        _award_badge(cur, int(user_id), "streak_7")
+    if streak >= 30:
+        _award_badge(cur, int(user_id), "streak_30")
+    return streak
 
 
 def handler(event: dict, context) -> dict:
@@ -88,9 +210,13 @@ def handler(event: dict, context) -> dict:
         cur.execute(
             f"""INSERT INTO {SCHEMA}.users (phone, name, last_seen, created_at)
                 VALUES (%s, %s, %s, %s)
-                RETURNING {USER_COLS}""",
+                RETURNING id""",
             (phone, name, int(time.time()), int(time.time()))
         )
+        new_id = cur.fetchone()[0]
+        _grant_xp(cur, new_id, "registered")
+        _award_badge(cur, new_id, "newcomer")
+        cur.execute(f"SELECT {USER_COLS} FROM {SCHEMA}.users WHERE id=%s", (new_id,))
         row = cur.fetchone()
         conn.close()
         # Push admin'у о новой регистрации
@@ -118,6 +244,10 @@ def handler(event: dict, context) -> dict:
         if not phone:
             conn.close()
             return err("Укажите phone")
+        cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE phone = %s", (phone,))
+        rid = cur.fetchone()
+        if rid:
+            _maybe_streak_bonus(cur, int(rid[0]))
         cur.execute(f"SELECT {USER_COLS} FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         row = cur.fetchone()
         conn.close()
@@ -363,6 +493,18 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id и text или media")
 
+        # Валидация sticker: юзер должен владеть паком
+        if kind == "sticker":
+            pack_id = (payload or {}).get("pack_id") if isinstance(payload, dict) else None
+            if not pack_id:
+                conn.close(); return err("Нужен pack_id в payload стикера")
+            cur.execute(
+                f"SELECT 1 FROM {SCHEMA}.user_sticker_packs WHERE user_id=%s AND pack_id=%s",
+                (int(user_id), int(pack_id))
+            )
+            if not cur.fetchone():
+                conn.close(); return err("Этот стикерпак не куплен")
+
         # Автотекст по типу медиа/спецсообщений
         if not text and media_url:
             auto_text = {"image": "📷 Фото", "video": "🎥 Видео", "audio": "🎵 Голосовое", "file": f"📎 {file_name or 'Файл'}"}.get(media_type, "📎 Файл")
@@ -398,6 +540,23 @@ def handler(event: dict, context) -> dict:
         )
         cur.execute(f"UPDATE {SCHEMA}.users SET last_seen = %s WHERE id = %s", (now, int(user_id)))
 
+        # XP за активность
+        if kind == "text":
+            _grant_xp(cur, int(user_id), "message")
+        elif kind == "sticker":
+            _grant_xp(cur, int(user_id), "sticker_sent")
+        # Бейдж "Болтун" за 100 текстовых сообщений
+        if kind == "text":
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.messages WHERE sender_id=%s AND kind='text' AND removed_at IS NULL", (int(user_id),))
+            cnt = int((cur.fetchone() or [0])[0])
+            if cnt >= 100:
+                _award_badge(cur, int(user_id), "talker")
+        # Бейдж "Социальный" за 5 чатов
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.chats WHERE user1_id=%s OR user2_id=%s", (int(user_id), int(user_id)))
+        chats_cnt = int((cur.fetchone() or [0])[0])
+        if chats_cnt >= 5:
+            _award_badge(cur, int(user_id), "social")
+
         cur.execute(
             f"""SELECT u.name,
                        CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END AS recipient_id
@@ -407,6 +566,9 @@ def handler(event: dict, context) -> dict:
             (int(user_id), int(user_id), int(chat_id))
         )
         row = cur.fetchone()
+        # XP получателю за входящее
+        if row and kind in ("text", "sticker", "gift"):
+            _grant_xp(cur, int(row[1]), "received_message")
         conn.close()
 
         if row:
@@ -1662,6 +1824,8 @@ def handler(event: dict, context) -> dict:
                 VALUES (%s,%s,%s,'wallet',%s,%s,FALSE,%s)""",
             (int(user_id), plan, price, now, new_until, now)
         )
+        _grant_xp(cur, int(user_id), "pro_purchased")
+        _award_badge(cur, int(user_id), "pro")
         conn.close()
         return ok({"balance": new_balance, "pro_until": new_until, "is_pro": True})
 
@@ -1818,6 +1982,8 @@ def handler(event: dict, context) -> dict:
             (int(user_id), title, description, cover_url, target, now)
         )
         fid = cur.fetchone()[0]
+        _grant_xp(cur, int(user_id), "fundraiser_created")
+        _award_badge(cur, int(user_id), "fundraiser")
         conn.close()
         return ok({"fundraiser_id": fid, "title": title, "target_amount": target})
 
@@ -1916,6 +2082,15 @@ def handler(event: dict, context) -> dict:
         )
         rr = cur.fetchone()
         collected = float(rr[0]); target = float(rr[1])
+        _grant_xp(cur, int(user_id), "fundraiser_donate")
+        # Бейдж "Филантроп" — 3 разных сбора поддержано
+        cur.execute(
+            f"SELECT COUNT(DISTINCT fundraiser_id) FROM {SCHEMA}.fundraiser_payments WHERE donor_id=%s AND status='paid'",
+            (int(user_id),)
+        )
+        funds_supported = int((cur.fetchone() or [0])[0] or 0)
+        if funds_supported >= 3:
+            _award_badge(cur, int(user_id), "philanthropist")
         conn.close()
         return ok({"balance": new_balance, "collected_amount": collected, "target_amount": target,
                    "completed": collected >= target})
@@ -2058,6 +2233,11 @@ def handler(event: dict, context) -> dict:
                 (int(user_id), pid, now)
             )
             cur.execute(f"UPDATE {SCHEMA}.sticker_packs SET total_sales=total_sales+1 WHERE id=%s", (pid,))
+        _grant_xp(cur, int(user_id), "sticker_pack_buy")
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.user_sticker_packs WHERE user_id=%s", (int(user_id),))
+        packs_cnt = int((cur.fetchone() or [0])[0] or 0)
+        if packs_cnt >= 3:
+            _award_badge(cur, int(user_id), "collector")
         conn.close()
         return ok({"owned": True, "balance": new_balance})
 
@@ -2124,6 +2304,17 @@ def handler(event: dict, context) -> dict:
         )
         msg_id = cur.fetchone()[0]
         cur.execute(f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s", (gift_text[:100], now, chat_id))
+        # XP отправителю и получателю
+        _grant_xp(cur, int(user_id), "lightning_sent")
+        _grant_xp(cur, recipient, "lightning_received")
+        # Бейдж "Щедрый" за 100 ⚡ всего отправленных
+        cur.execute(
+            f"SELECT COALESCE(SUM(-amount),0) FROM {SCHEMA}.lightning_transactions WHERE user_id=%s AND kind='sent'",
+            (int(user_id),)
+        )
+        sent_total = int((cur.fetchone() or [0])[0] or 0)
+        if sent_total >= 100:
+            _award_badge(cur, int(user_id), "generous")
         conn.close()
         return ok({"lightning": new_my, "msg_id": msg_id, "created_at": now, "to_user": recipient})
 
@@ -2214,6 +2405,86 @@ def handler(event: dict, context) -> dict:
         my = [{"id": r[0], "title": r[1], "cover_url": r[2], "acquired_at": int(r[3])} for r in cur.fetchall()]
         conn.close()
         return ok({"packs": my})
+
+    # ── get_user_progress (XP, уровень, бейджи, последние события) ────────────
+    if action == "get_user_progress":
+        target_id = body.get("user_id") or user_id
+        if not target_id:
+            conn.close(); return err("Нужен user_id или X-User-Id")
+        try:
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный user_id")
+        cur.execute(
+            f"SELECT id, name, avatar_url, COALESCE(xp,0), COALESCE(level,1), COALESCE(daily_streak,0) FROM {SCHEMA}.users WHERE id=%s",
+            (target_id,)
+        )
+        u = cur.fetchone()
+        if not u:
+            conn.close(); return err("Пользователь не найден", 404)
+        cur_xp = int(u[3] or 0); cur_level = int(u[4] or 1)
+        prev = _xp_for_level(cur_level)
+        nxt = _xp_for_level(cur_level + 1)
+        # Бейджи
+        cur.execute(
+            f"SELECT badge_code, earned_at FROM {SCHEMA}.user_badges WHERE user_id=%s ORDER BY earned_at DESC",
+            (target_id,)
+        )
+        earned = [(r[0], int(r[1])) for r in cur.fetchall()]
+        earned_codes = {c for c, _ in earned}
+        all_badges = []
+        for code, meta in BADGES.items():
+            ts = next((t for c, t in earned if c == code), None)
+            all_badges.append({
+                "code": code, "title": meta["title"], "icon": meta["icon"], "desc": meta["desc"],
+                "earned": code in earned_codes, "earned_at": ts,
+            })
+        # Последние XP-события
+        cur.execute(
+            f"""SELECT amount, reason, created_at FROM {SCHEMA}.xp_events
+                WHERE user_id=%s ORDER BY created_at DESC LIMIT 30""",
+            (target_id,)
+        )
+        events = [{"amount": int(r[0]), "reason": r[1], "created_at": int(r[2])} for r in cur.fetchall()]
+        conn.close()
+        return ok({
+            "user": {"id": u[0], "name": u[1], "avatar_url": u[2]},
+            "xp": cur_xp, "level": cur_level,
+            "xp_for_current_level": prev,
+            "xp_for_next_level": nxt,
+            "progress_pct": int(round((cur_xp - prev) * 100 / max(1, nxt - prev))) if nxt > prev else 100,
+            "daily_streak": int(u[5] or 0),
+            "badges": all_badges,
+            "events": events,
+        })
+
+    # ── leaderboard ───────────────────────────────────────────────────────────
+    if action == "leaderboard":
+        scope = body.get("scope") or "global"
+        cur.execute(
+            f"""SELECT id, name, avatar_url, COALESCE(xp,0), COALESCE(level,1)
+                FROM {SCHEMA}.users
+                WHERE COALESCE(xp,0) > 0
+                ORDER BY xp DESC, id ASC
+                LIMIT 50"""
+        )
+        rows = cur.fetchall()
+        items = [{
+            "id": r[0], "name": r[1], "avatar_url": r[2],
+            "xp": int(r[3]), "level": int(r[4]),
+            "rank": i + 1,
+        } for i, r in enumerate(rows)]
+        my_rank = None
+        if user_id:
+            cur.execute(
+                f"""SELECT COUNT(*)+1 FROM {SCHEMA}.users
+                    WHERE COALESCE(xp,0) > (SELECT COALESCE(xp,0) FROM {SCHEMA}.users WHERE id=%s)""",
+                (int(user_id),)
+            )
+            mr = cur.fetchone()
+            my_rank = int(mr[0]) if mr else None
+        conn.close()
+        return ok({"items": items, "my_rank": my_rank, "scope": scope})
 
     conn.close()
     return err("Неизвестный action")

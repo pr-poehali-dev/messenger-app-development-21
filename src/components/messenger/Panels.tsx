@@ -133,7 +133,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -481,16 +481,18 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 px-4 mb-4">
+      <div className="grid grid-cols-3 gap-2 px-4 mb-4">
         {[
           { label: "Контакты", value: String(contactsCount), icon: "Users" },
           { label: "Чаты", value: String(chatsCount), icon: "MessageCircle" },
+          { label: "Уровень", value: String(currentUser.level || 1), icon: "Trophy", action: onOpenProgress },
         ].map((s, i) => (
-          <div key={s.label} className={`glass rounded-2xl p-3 text-center animate-fade-in stagger-${i + 1}`}>
+          <button key={s.label} onClick={s.action || undefined} disabled={!s.action}
+            className={`glass rounded-2xl p-3 text-center animate-fade-in stagger-${i + 1} ${s.action ? "hover:bg-white/8 active:scale-95 transition" : ""}`}>
             <Icon name={s.icon as IconName} size={18} className="text-violet-400 mx-auto mb-1" />
             <div className="text-lg font-bold grad-text">{s.value}</div>
             <div className="text-[11px] text-muted-foreground">{s.label}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -568,6 +570,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
         {[
           { icon: "Edit3", label: "Редактировать профиль", sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
           ...(onOpenProSettings ? [{ icon: "Sparkles", label: "Персонализация", sub: "Эмодзи-статус, цвет, инкогнито", action: onOpenProSettings }] : []),
+          ...(onOpenProgress ? [{ icon: "Trophy", label: "Прокачка", sub: `${currentUser.level ? `Уровень ${currentUser.level} · ${currentUser.xp || 0} XP` : "Уровни, бейджи, топ"}`, action: onOpenProgress }] : []),
           { icon: "Bell", label: "Уведомления", sub: "Звуки, вибрация", action: onSettings },
           { icon: "Shield", label: "Конфиденциальность", sub: "Блокировки, кто видит", action: onSettings },
           { icon: "Lock", label: "Шифрование", sub: "Управление ключами E2E", action: onSettings },

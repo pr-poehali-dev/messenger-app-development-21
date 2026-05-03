@@ -170,6 +170,39 @@ export interface User {
   lightning_balance?: number;
   pro_trial_used?: boolean;
   stickers_subscription_until?: number | null;
+  xp?: number;
+  level?: number;
+  daily_streak?: number;
+}
+
+export interface BadgeInfo {
+  code: string;
+  title: string;
+  icon: string;
+  desc: string;
+  earned: boolean;
+  earned_at: number | null;
+}
+
+export interface UserProgress {
+  user: { id: number; name: string; avatar_url?: string | null };
+  xp: number;
+  level: number;
+  xp_for_current_level: number;
+  xp_for_next_level: number;
+  progress_pct: number;
+  daily_streak: number;
+  badges: BadgeInfo[];
+  events: { amount: number; reason: string; created_at: number }[];
+}
+
+export interface LeaderboardItem {
+  id: number;
+  name: string;
+  avatar_url?: string | null;
+  xp: number;
+  level: number;
+  rank: number;
 }
 
 export interface LightningTx {

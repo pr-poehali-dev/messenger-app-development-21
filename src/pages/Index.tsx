@@ -19,6 +19,7 @@ import LightningPanel from "@/components/messenger/LightningPanel";
 import StickersStorePanel from "@/components/messenger/StickersStorePanel";
 import FundraiserPanel from "@/components/messenger/FundraiserPanel";
 import { AdminStickersPanel } from "@/components/messenger/AdminStickersPanel";
+import ProgressPanel from "@/components/messenger/ProgressPanel";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -76,6 +77,7 @@ export default function Index() {
   const [showLightning, setShowLightning] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
   const [showAdminStickers, setShowAdminStickers] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
   const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
 
   // Push-подписка
@@ -342,6 +344,14 @@ export default function Index() {
         <AdminStickersPanel
           currentUser={currentUser}
           onClose={() => setShowAdminStickers(false)}
+        />
+      )}
+
+      {/* Прокачка */}
+      {showProgress && currentUser && (
+        <ProgressPanel
+          currentUser={currentUser}
+          onClose={() => setShowProgress(false)}
         />
       )}
 
@@ -641,6 +651,7 @@ export default function Index() {
             }}
             onUserUpdate={(u) => setCurrentUser(u)}
             onOpenFundraiser={(id) => setFundraiserView(id === -1 ? { mode: "create" } : { mode: "view", id })}
+            onOpenStickersStore={() => setShowStickers(true)}
           />
         ) : view === "search" ? (
           <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} onBack={() => { setView("chats"); setShowSidebar(true); }} />
@@ -656,6 +667,7 @@ export default function Index() {
             onOpenWallet={() => setShowWallet(true)}
             onOpenPro={() => setShowPro(true)}
             onOpenProSettings={() => setShowProSettings(true)}
+            onOpenProgress={() => setShowProgress(true)}
           />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />
