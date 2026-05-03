@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "GET not allowed",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 405
+    },
+    {
+      "name": "Bad JSON returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": "not json",
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Missing payment id returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": {"event": "payment.succeeded", "object": {}},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

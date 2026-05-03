@@ -1,0 +1,168 @@
+"""ЮKassa: создание платежа для пополнения кошелька Nova."""
+import json
+import os
+import re
+import uuid
+import base64
+from datetime import datetime
+from urllib.request import Request, urlopen
+
+import psycopg2
+
+EMAIL_REGEX = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+MIN_AMOUNT = 1.00
+MAX_AMOUNT = 100_000.00
+
+YOOKASSA_API_URL = "https://api.yookassa.ru/v3/payments"
+
+HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-User-Id',
+    'Content-Type': 'application/json'
+}
+
+
+def get_conn():
+    return psycopg2.connect(os.environ['DATABASE_URL'])
+
+
+def get_schema():
+    s = os.environ.get('MAIN_DB_SCHEMA', 'public')
+    return f"{s}." if s else ""
+
+
+def create_yookassa_payment(shop_id, secret_key, amount, description, return_url, customer_email, metadata):
+    auth = base64.b64encode(f"{shop_id}:{secret_key}".encode()).decode()
+    payload = {
+        "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+        "capture": True,
+        "confirmation": {"type": "redirect", "return_url": return_url},
+        "description": description,
+        "receipt": {
+            "customer": {"email": customer_email},
+            "items": [{
+                "description": description[:128],
+                "quantity": "1.00",
+                "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+                "vat_code": 1,
+                "payment_subject": "service",
+                "payment_mode": "full_payment",
+            }],
+        },
+        "metadata": metadata,
+    }
+    req = Request(
+        YOOKASSA_API_URL,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={
+            'Authorization': f'Basic {auth}',
+            'Idempotence-Key': str(uuid.uuid4()),
+            'Content-Type': 'application/json',
+        },
+        method='POST',
+    )
+    with urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode())
+
+
+def handler(event, context):
+    """Создаёт платёж в ЮKassa для пополнения кошелька Nova и возвращает ссылку на оплату."""
+    if event.get('httpMethod') == 'OPTIONS':
+        return {'statusCode': 200, 'headers': HEADERS, 'body': ''}
+
+    if event.get('httpMethod') != 'POST':
+        return {'statusCode': 405, 'headers': HEADERS, 'body': json.dumps({'error': 'Method not allowed'})}
+
+    body = event.get('body', '{}')
+    if event.get('isBase64Encoded'):
+        body = base64.b64decode(body).decode('utf-8')
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'Invalid JSON'})}
+
+    headers = event.get('headers') or {}
+    user_id = headers.get('X-User-Id') or headers.get('x-user-id') or data.get('user_id')
+    if not user_id:
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'Нужен X-User-Id'})}
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'Bad user_id'})}
+
+    try:
+        amount = float(data.get('amount', 0))
+    except (TypeError, ValueError):
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'Bad amount'})}
+
+    if amount < MIN_AMOUNT or amount > MAX_AMOUNT:
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': f'Сумма от {MIN_AMOUNT} до {MAX_AMOUNT}'})}
+
+    user_email = (data.get('user_email') or '').strip()
+    if not user_email or not EMAIL_REGEX.match(user_email):
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'Нужен email для чека'})}
+
+    return_url = (data.get('return_url') or '').strip()
+    if not return_url.startswith('https://'):
+        return {'statusCode': 400, 'headers': HEADERS, 'body': json.dumps({'error': 'return_url должен быть HTTPS'})}
+
+    shop_id = os.environ.get('YOOKASSA_SHOP_ID', '')
+    secret_key = os.environ.get('YOOKASSA_SECRET_KEY', '')
+    if not shop_id or not secret_key:
+        return {'statusCode': 503, 'headers': HEADERS, 'body': json.dumps({'error': 'ЮKassa не настроена. Добавь YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в секреты проекта.'})}
+
+    purpose = data.get('purpose') or 'wallet_topup'
+    description = 'Пополнение кошелька Nova' if purpose == 'wallet_topup' else 'Оплата Nova'
+
+    S = get_schema()
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        order_number = f"NOVA-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+
+        cur.execute(
+            f"""INSERT INTO {S}orders
+                (order_number, user_email, amount, status, created_at, updated_at, nova_user_id, purpose)
+                VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s)
+                RETURNING id""",
+            (order_number, user_email, amount, now, now, user_id, purpose),
+        )
+        order_id = cur.fetchone()[0]
+        conn.commit()
+
+        metadata = {"order_id": str(order_id), "order_number": order_number, "user_id": str(user_id), "purpose": purpose}
+        yk = create_yookassa_payment(
+            shop_id=shop_id, secret_key=secret_key, amount=amount,
+            description=f"{description} ({order_number})",
+            return_url=return_url, customer_email=user_email, metadata=metadata,
+        )
+
+        payment_id = yk.get('id')
+        confirmation_url = (yk.get('confirmation') or {}).get('confirmation_url', '')
+
+        cur.execute(
+            f"UPDATE {S}orders SET yookassa_payment_id=%s, payment_url=%s, updated_at=%s WHERE id=%s",
+            (payment_id, confirmation_url, now, order_id),
+        )
+        conn.commit()
+
+        return {
+            'statusCode': 200,
+            'headers': HEADERS,
+            'body': json.dumps({
+                'order_id': order_id,
+                'order_number': order_number,
+                'payment_id': payment_id,
+                'payment_url': confirmation_url,
+                'amount': amount,
+                'status': 'pending',
+            }),
+        }
+    except Exception as e:
+        conn.rollback()
+        return {'statusCode': 500, 'headers': HEADERS, 'body': json.dumps({'error': str(e)[:200]})}
+    finally:
+        conn.close()

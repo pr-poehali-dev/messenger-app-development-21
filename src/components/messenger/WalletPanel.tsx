@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "@/components/ui/icon";
-import { api, type User, type WalletTransaction } from "@/lib/api";
+import { api, type User, type WalletTransaction, YOOKASSA_PAY_API } from "@/lib/api";
 
 interface Props {
   currentUser: User;
@@ -17,6 +17,8 @@ export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Prop
   const [loading, setLoading] = useState(true);
   const [topupOpen, setTopupOpen] = useState(false);
   const [amount, setAmount] = useState<string>("100");
+  const [email, setEmail] = useState<string>(localStorage.getItem("nova_payment_email") || "");
+  const [method, setMethod] = useState<"yookassa" | "test">("yookassa");
   const [topping, setTopping] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,10 +35,17 @@ export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Prop
 
   useEffect(() => { reload(); }, [currentUser.id]);
 
-  const topup = async () => {
-    setError("");
-    const a = parseFloat(amount.replace(",", "."));
-    if (!a || a < 1) { setError("Введи сумму от 1 ₽"); return; }
+  const checkPaymentReturn = async () => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("payment") === "success") {
+      url.searchParams.delete("payment");
+      window.history.replaceState({}, "", url.toString());
+      setTimeout(() => reload(), 2000);
+    }
+  };
+  useEffect(() => { checkPaymentReturn(); }, []);
+
+  const topupTest = async (a: number) => {
     setTopping(true);
     const r = await api("wallet_topup", { amount: a, description: "Тестовое пополнение" }, currentUser.id);
     setTopping(false);
@@ -44,14 +53,54 @@ export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Prop
       setBalance(r.balance);
       setTopupOpen(false);
       setAmount("100");
-      const userR = await api("get_me", { phone: currentUser.phone });
-      if (userR.user) {
-        onUserUpdate?.(userR.user);
-        localStorage.setItem("nova_user", JSON.stringify(userR.user));
-      }
       await reload();
     } else {
       setError(r.error || "Ошибка пополнения");
+    }
+  };
+
+  const topupYookassa = async (a: number) => {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Введи корректный email — он нужен для чека по 54-ФЗ");
+      return;
+    }
+    localStorage.setItem("nova_payment_email", email);
+    setTopping(true);
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}?payment=success`;
+      const res = await fetch(YOOKASSA_PAY_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": String(currentUser.id) },
+        body: JSON.stringify({
+          amount: a,
+          user_email: email,
+          return_url: returnUrl,
+          purpose: "wallet_topup",
+        }),
+      });
+      const data = await res.json();
+      setTopping(false);
+      if (data.payment_url) {
+        window.location.href = data.payment_url;
+      } else if (data.error) {
+        setError(data.error);
+      } else {
+        setError("Не удалось создать платёж");
+      }
+    } catch (e) {
+      setTopping(false);
+      setError("Ошибка соединения с ЮKassa");
+    }
+  };
+
+  const topup = async () => {
+    setError("");
+    const a = parseFloat(amount.replace(",", "."));
+    if (!a || a < 1) { setError("Введи сумму от 1 ₽"); return; }
+    if (method === "yookassa") {
+      await topupYookassa(a);
+    } else {
+      await topupTest(a);
     }
   };
 
@@ -144,16 +193,61 @@ export default function WalletPanel({ currentUser, onClose, onUserUpdate }: Prop
               />
               <span className="text-sm text-muted-foreground">₽</span>
             </div>
+
+            {/* Способ оплаты */}
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button
+                onClick={() => setMethod("yookassa")}
+                className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition ${
+                  method === "yookassa"
+                    ? "border-violet-400 bg-violet-500/10"
+                    : "border-white/10 bg-white/5 hover:border-white/20"
+                }`}>
+                <Icon name="CreditCard" size={18} className={method === "yookassa" ? "text-violet-400" : "text-muted-foreground"} />
+                <span className="text-xs font-semibold">Картой (ЮKassa)</span>
+                <span className="text-[10px] text-muted-foreground">SberPay, СБП, карта</span>
+              </button>
+              <button
+                onClick={() => setMethod("test")}
+                className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition ${
+                  method === "test"
+                    ? "border-amber-400 bg-amber-500/10"
+                    : "border-white/10 bg-white/5 hover:border-white/20"
+                }`}>
+                <Icon name="TestTube" size={18} className={method === "test" ? "text-amber-400" : "text-muted-foreground"} />
+                <span className="text-xs font-semibold">Тестовое</span>
+                <span className="text-[10px] text-muted-foreground">Без оплаты, мгновенно</span>
+              </button>
+            </div>
+
+            {/* Email для чека */}
+            {method === "yookassa" && (
+              <div className="flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2.5 mb-2">
+                <Icon name="Mail" size={14} className="text-muted-foreground" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Email для чека"
+                  className="flex-1 bg-transparent outline-none text-sm"
+                />
+              </div>
+            )}
+
             {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
             <p className="text-[11px] text-muted-foreground mb-3">
-              Сейчас работает тестовый режим: средства начисляются мгновенно без оплаты.
+              {method === "yookassa"
+                ? "Безопасная оплата через ЮKassa. Чек придёт на email после оплаты."
+                : "Средства начисляются мгновенно без реальной оплаты."}
             </p>
             <button
               onClick={topup}
               disabled={topping}
               className="w-full h-11 rounded-2xl grad-primary text-white font-semibold disabled:opacity-60"
             >
-              {topping ? "Зачисляем..." : `Пополнить на ${amount || 0} ₽`}
+              {topping
+                ? (method === "yookassa" ? "Создаём платёж..." : "Зачисляем...")
+                : (method === "yookassa" ? `Перейти к оплате · ${amount || 0} ₽` : `Пополнить на ${amount || 0} ₽`)}
             </button>
           </div>
         )}

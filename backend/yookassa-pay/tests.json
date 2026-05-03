@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS returns 200",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Missing user id returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": {"amount": 100, "user_email": "test@example.com", "return_url": "https://example.com/ok"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Bad amount returns 400",
+      "method": "POST",
+      "path": "/",
+      "headers": {"X-User-Id": "1"},
+      "body": {"amount": 0, "user_email": "test@example.com", "return_url": "https://example.com/ok"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

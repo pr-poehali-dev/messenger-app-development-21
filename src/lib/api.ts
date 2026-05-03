@@ -1,6 +1,7 @@
 export const CHAT_API = "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3";
 export const PUSH_API = "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af";
 export const UPLOAD_API = "https://functions.poehali.dev/c0e361f0-438f-44b3-8886-26f5afb7d935";
+export const YOOKASSA_PAY_API = "https://functions.poehali.dev/2feb7862-ee04-4945-8549-c0596f30bdc9";
 
 export interface UploadResult {
   url: string;
