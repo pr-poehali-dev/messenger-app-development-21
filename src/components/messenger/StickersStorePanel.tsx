@@ -6,9 +6,10 @@ interface Props {
   currentUser: User;
   onClose: () => void;
   onUserUpdate?: (u: User) => void;
+  onOpenAdmin?: () => void;
 }
 
-export default function StickersStorePanel({ currentUser, onClose, onUserUpdate }: Props) {
+export default function StickersStorePanel({ currentUser, onClose, onUserUpdate, onOpenAdmin }: Props) {
   const [tab, setTab] = useState<"store" | "my">("store");
   const [packs, setPacks] = useState<StickerPack[]>([]);
   const [myPacks, setMyPacks] = useState<{ id: number; title: string; cover_url?: string | null; acquired_at: number }[]>([]);
@@ -84,6 +85,12 @@ export default function StickersStorePanel({ currentUser, onClose, onUserUpdate 
           <Icon name="ChevronLeft" size={20} />
         </button>
         <h2 className="font-bold flex-1 text-lg">Стикеры</h2>
+        {onOpenAdmin && (
+          <button onClick={onOpenAdmin} title="Добавить пак (для админов)"
+            className="p-2 rounded-xl hover:bg-white/8 text-muted-foreground hover:text-violet-400">
+            <Icon name="Plus" size={18} />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom))" }}>

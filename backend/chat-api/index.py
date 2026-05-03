@@ -9,7 +9,7 @@ SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p67547116_messenger_app_develo")
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
+    "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-Admin-Password, X-Admin-Token",
 }
 
 
@@ -260,7 +260,7 @@ def handler(event: dict, context) -> dict:
             f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
                        m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
                        m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at,
-                       COALESCE(m.kind, 'text')
+                       COALESCE(m.kind, 'text'), m.payload_json
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
@@ -311,6 +311,14 @@ def handler(event: dict, context) -> dict:
         removed_ids = [r[0] for r in cur.fetchall()]
 
         conn.close()
+        def _parse_payload(raw):
+            if not raw:
+                return None
+            try:
+                return json.loads(raw)
+            except Exception:
+                return None
+
         messages = [{
             "id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3],
             "read_at": r[4], "sender_name": r[5],
@@ -322,6 +330,7 @@ def handler(event: dict, context) -> dict:
             "forwarded_from_name": r[14],
             "edited_at": r[15],
             "kind": r[16] or "text",
+            "payload": _parse_payload(r[17]),
             "reactions": reactions_map.get(r[0], []),
         } for r in rows]
         return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
@@ -342,34 +351,45 @@ def handler(event: dict, context) -> dict:
         reply_to_id = body.get("reply_to_id") or None
         forwarded_from_user_id = body.get("forwarded_from_user_id") or None
         forwarded_from_name = (body.get("forwarded_from_name") or "").strip() or None
+        kind = (body.get("kind") or "text").strip() or "text"
+        payload = body.get("payload") or None
 
         # Совместимость: image_url → media
         if image_url and not media_url:
             media_url = image_url
             media_type = "image"
 
-        if not chat_id or (not text and not media_url):
+        if not chat_id or (not text and not media_url and kind == "text"):
             conn.close()
             return err("Укажите chat_id и text или media")
 
-        # Автотекст по типу медиа
+        # Автотекст по типу медиа/спецсообщений
         if not text and media_url:
             auto_text = {"image": "📷 Фото", "video": "🎥 Видео", "audio": "🎵 Голосовое", "file": f"📎 {file_name or 'Файл'}"}.get(media_type, "📎 Файл")
             text = auto_text
+        if not text and kind == "gift":
+            qty = (payload or {}).get("quantity", 0) if isinstance(payload, dict) else 0
+            text = f"⚡ Подарок: {qty} молний"
+        if not text and kind == "fundraiser":
+            text = "❤️ Сбор средств"
+        if not text and kind == "sticker":
+            text = "🎨 Стикер"
+
+        payload_str = json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else None
 
         now = int(time.time())
         cur.execute(
             f"""INSERT INTO {SCHEMA}.messages
                 (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at,
-                 reply_to_id, forwarded_from_user_id, forwarded_from_name)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                 reply_to_id, forwarded_from_user_id, forwarded_from_name, kind, payload_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (int(chat_id), int(user_id), text,
              media_url if media_type == "image" else None,
              media_type or None, media_url or None,
              file_name, file_size, duration, now,
              int(reply_to_id) if reply_to_id else None,
              int(forwarded_from_user_id) if forwarded_from_user_id else None,
-             forwarded_from_name)
+             forwarded_from_name, kind, payload_str)
         )
         msg_id = cur.fetchone()[0]
         cur.execute(
@@ -2040,6 +2060,144 @@ def handler(event: dict, context) -> dict:
             cur.execute(f"UPDATE {SCHEMA}.sticker_packs SET total_sales=total_sales+1 WHERE id=%s", (pid,))
         conn.close()
         return ok({"owned": True, "balance": new_balance})
+
+    # ── lightning_send_to_chat (подарок ⚡ + сообщение в чат) ─────────────────
+    if action == "lightning_send_to_chat":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            qty = int(body.get("quantity") or 0)
+            chat_id = int(body.get("chat_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        message = (body.get("message") or "")[:200]
+        if qty < 1 or qty > 100000:
+            conn.close(); return err("От 1 до 100000 ⚡")
+        if chat_id <= 0:
+            conn.close(); return err("Нужен chat_id")
+        # Найти получателя
+        cur.execute(f"SELECT user1_id, user2_id FROM {SCHEMA}.chats WHERE id=%s", (chat_id,))
+        cr = cur.fetchone()
+        if not cr:
+            conn.close(); return err("Чат не найден", 404)
+        u1, u2 = int(cr[0]), int(cr[1])
+        recipient = u2 if u1 == int(user_id) else u1
+        if recipient == int(user_id):
+            conn.close(); return err("Нельзя дарить себе")
+        # Проверка баланса
+        cur.execute(f"SELECT name, COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        ur = cur.fetchone()
+        if not ur:
+            conn.close(); return err("Пользователь не найден", 404)
+        sender_name = ur[0] or "Друг"
+        my_lb = int(ur[1] or 0)
+        if my_lb < qty:
+            conn.close(); return err(f"Недостаточно ⚡. У тебя {my_lb}")
+        cur.execute(f"SELECT name, COALESCE(lightning_balance,0) FROM {SCHEMA}.users WHERE id=%s", (recipient,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Получатель не найден", 404)
+        their_lb = int(rr[1] or 0)
+        recipient_name = rr[0] or "Друг"
+        now = int(time.time())
+        new_my = my_lb - qty
+        new_their = their_lb + qty
+        cur.execute(f"UPDATE {SCHEMA}.users SET lightning_balance=%s WHERE id=%s", (new_my, int(user_id)))
+        cur.execute(f"UPDATE {SCHEMA}.users SET lightning_balance=%s WHERE id=%s", (new_their, recipient))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.lightning_transactions (user_id, amount, kind, description, related_user_id, balance_after, created_at)
+                VALUES (%s,%s,'sent',%s,%s,%s,%s)""",
+            (int(user_id), -qty, f"Подарок {recipient_name}", recipient, new_my, now)
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.lightning_transactions (user_id, amount, kind, description, related_user_id, balance_after, created_at)
+                VALUES (%s,%s,'received',%s,%s,%s,%s)""",
+            (recipient, qty, f"От {sender_name}", int(user_id), new_their, now)
+        )
+        # Сообщение в чат
+        gift_text = f"⚡ Подарок: {qty} молн{'ия' if qty == 1 else ('ии' if 2 <= qty <= 4 else 'ий')}"
+        payload = {"quantity": qty, "message": message}
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind, payload_json)
+                VALUES (%s,%s,%s,%s,'gift',%s) RETURNING id""",
+            (chat_id, int(user_id), gift_text, now, json.dumps(payload, ensure_ascii=False))
+        )
+        msg_id = cur.fetchone()[0]
+        cur.execute(f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s", (gift_text[:100], now, chat_id))
+        conn.close()
+        return ok({"lightning": new_my, "msg_id": msg_id, "created_at": now, "to_user": recipient})
+
+    # ── my_fundraisers (для выбора при отправке в чат) ───────────────────────
+    if action == "my_fundraisers":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, title, target_amount, collected_amount, status, cover_url, created_at
+                FROM {SCHEMA}.fundraisers WHERE owner_id=%s ORDER BY created_at DESC LIMIT 50""",
+            (int(user_id),)
+        )
+        items = [{
+            "id": r[0], "title": r[1], "target_amount": float(r[2]),
+            "collected_amount": float(r[3]), "status": r[4], "cover_url": r[5],
+            "created_at": int(r[6])
+        } for r in cur.fetchall()]
+        conn.close()
+        return ok({"fundraisers": items})
+
+    # ── stickers_create_pack (админ) ─────────────────────────────────────────
+    if action == "stickers_create_pack":
+        hdrs = event.get("headers") or {}
+        admin_token = hdrs.get("X-Admin-Password") or hdrs.get("x-admin-password") or hdrs.get("X-Admin-Token") or hdrs.get("x-admin-token") or ""
+        expected = os.environ.get("ADMIN_PASSWORD", "")
+        if not expected or admin_token != expected:
+            conn.close(); return err("Forbidden", 403)
+        title = (body.get("title") or "").strip()
+        description = (body.get("description") or "").strip()[:500]
+        cover_url = body.get("cover_url") or None
+        try:
+            price = float(body.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0
+        is_premium = bool(body.get("is_premium"))
+        author_id = body.get("author_id") or None
+        items = body.get("items") or []
+        if not title or len(title) < 2:
+            conn.close(); return err("Название от 2 символов")
+        if not isinstance(items, list) or len(items) < 1:
+            conn.close(); return err("Минимум 1 стикер")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.sticker_packs (author_id, title, description, cover_url, price, is_premium, is_published, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,TRUE,%s) RETURNING id""",
+            (int(author_id) if author_id else None, title, description, cover_url, price, is_premium, now)
+        )
+        pid = cur.fetchone()[0]
+        for i, it in enumerate(items):
+            if not isinstance(it, dict): continue
+            img = (it.get("image_url") or "").strip()
+            if not img: continue
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.sticker_items (pack_id, emoji, image_url, position)
+                    VALUES (%s,%s,%s,%s)""",
+                (pid, (it.get("emoji") or "")[:8], img, i)
+            )
+        conn.close()
+        return ok({"pack_id": pid})
+
+    # ── stickers_delete_pack (админ) ─────────────────────────────────────────
+    if action == "stickers_delete_pack":
+        hdrs = event.get("headers") or {}
+        admin_token = hdrs.get("X-Admin-Password") or hdrs.get("x-admin-password") or hdrs.get("X-Admin-Token") or hdrs.get("x-admin-token") or ""
+        expected = os.environ.get("ADMIN_PASSWORD", "")
+        if not expected or admin_token != expected:
+            conn.close(); return err("Forbidden", 403)
+        try:
+            pid = int(body.get("pack_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный id")
+        cur.execute(f"UPDATE {SCHEMA}.sticker_packs SET is_published=FALSE WHERE id=%s", (pid,))
+        conn.close()
+        return ok({"deleted": pid})
 
     # ── stickers_my (мои паки) ────────────────────────────────────────────────
     if action == "stickers_my":

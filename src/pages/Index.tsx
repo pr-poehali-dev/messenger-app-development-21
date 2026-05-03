@@ -18,6 +18,7 @@ import ProSettingsPanel from "@/components/messenger/ProSettingsPanel";
 import LightningPanel from "@/components/messenger/LightningPanel";
 import StickersStorePanel from "@/components/messenger/StickersStorePanel";
 import FundraiserPanel from "@/components/messenger/FundraiserPanel";
+import { AdminStickersPanel } from "@/components/messenger/AdminStickersPanel";
 import { type Contact } from "@/lib/api";
 
 export default function Index() {
@@ -74,6 +75,7 @@ export default function Index() {
   const [showProSettings, setShowProSettings] = useState(false);
   const [showLightning, setShowLightning] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
+  const [showAdminStickers, setShowAdminStickers] = useState(false);
   const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
 
   // Push-подписка
@@ -331,6 +333,15 @@ export default function Index() {
           currentUser={currentUser}
           onClose={() => setShowStickers(false)}
           onUserUpdate={(u) => setCurrentUser(u)}
+          onOpenAdmin={() => setShowAdminStickers(true)}
+        />
+      )}
+
+      {/* Admin: создание стикерпаков */}
+      {showAdminStickers && currentUser && (
+        <AdminStickersPanel
+          currentUser={currentUser}
+          onClose={() => setShowAdminStickers(false)}
         />
       )}
 
@@ -628,6 +639,8 @@ export default function Index() {
               setRealChats(prev => prev.filter(c => c.id !== selectedChat.id));
               setSelectedChat(null);
             }}
+            onUserUpdate={(u) => setCurrentUser(u)}
+            onOpenFundraiser={(id) => setFundraiserView(id === -1 ? { mode: "create" } : { mode: "view", id })}
           />
         ) : view === "search" ? (
           <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} onBack={() => { setView("chats"); setShowSidebar(true); }} />

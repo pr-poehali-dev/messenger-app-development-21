@@ -11,6 +11,8 @@ import { SwipeableMessage } from "@/components/messenger/SwipeableMessage";
 import { formatDateLabel, dayKey } from "@/components/messenger/dateGroup";
 import { LinkifiedText, extractFirstUrl, getDomain } from "@/components/messenger/LinkifiedText";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { GiftBubble, FundraiserBubble, StickerBubble } from "@/components/messenger/SpecialBubbles";
+import { GiftSendModal, FundraiserAttachModal } from "@/components/messenger/ChatGiftModals";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -28,6 +30,7 @@ const isMediaPlaceholder = (text: string) =>
 
 export function ChatWindow({
   chat, onBack, currentUser, onCall, onVideoCall, onChatUpdated, onChatDeleted,
+  onOpenFundraiser, onUserUpdate,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -36,6 +39,8 @@ export function ChatWindow({
   onVideoCall?: (partnerId: number, name: string) => void;
   onChatUpdated?: (chat: Chat) => void;
   onChatDeleted?: () => void;
+  onOpenFundraiser?: (id: number) => void;
+  onUserUpdate?: (u: User) => void;
 }) {
   useEdgeSwipeBack(onBack);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -55,6 +60,8 @@ export function ChatWindow({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [lastSince, setLastSince] = useState(0);
+  const [showGiftModal, setShowGiftModal] = useState(false);
+  const [showFundModal, setShowFundModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("Загружаем...");
   const [isTyping, setIsTyping] = useState(false);
@@ -545,6 +552,35 @@ export function ChatWindow({
               );
             }
 
+            // Спецсообщения: подарок ⚡ / сбор / стикер
+            if (msg.kind === "gift") {
+              nodes.push(
+                <div key={msg.id} id={`msg-${msg.id}`}
+                  className={`flex ${msg.out ? "justify-end" : "justify-start"} my-2 animate-fade-in px-2`}>
+                  <GiftBubble msg={msg} />
+                </div>
+              );
+              return;
+            }
+            if (msg.kind === "fundraiser") {
+              nodes.push(
+                <div key={msg.id} id={`msg-${msg.id}`}
+                  className={`flex ${msg.out ? "justify-end" : "justify-start"} my-2 animate-fade-in px-2`}>
+                  <FundraiserBubble msg={msg} onOpen={(id) => onOpenFundraiser?.(id)} />
+                </div>
+              );
+              return;
+            }
+            if (msg.kind === "sticker") {
+              nodes.push(
+                <div key={msg.id} id={`msg-${msg.id}`}
+                  className={`flex ${msg.out ? "justify-end" : "justify-start"} my-1.5 animate-fade-in px-2`}>
+                  <StickerBubble msg={msg} />
+                </div>
+              );
+              return;
+            }
+
             // Системные сообщения (например, пропущенный звонок)
             if (msg.kind === "missed_call") {
               const isCaller = msg.out;
@@ -709,7 +745,29 @@ export function ChatWindow({
         onCancelReply={() => setReplyTo(null)}
         editing={editing}
         onCancelEdit={() => { setEditing(null); setInput(""); }}
+        onSendGift={() => { setShowAttach(false); setShowGiftModal(true); }}
+        onAttachFundraiser={() => { setShowAttach(false); setShowFundModal(true); }}
       />
+
+      {showGiftModal && (
+        <GiftSendModal
+          currentUser={currentUser}
+          chatId={chat.id}
+          onClose={() => setShowGiftModal(false)}
+          onSent={() => { setLastSince(0); }}
+          onUserUpdate={onUserUpdate}
+        />
+      )}
+
+      {showFundModal && (
+        <FundraiserAttachModal
+          currentUser={currentUser}
+          chatId={chat.id}
+          onClose={() => setShowFundModal(false)}
+          onSent={() => { setLastSince(0); }}
+          onCreate={() => { setShowFundModal(false); onOpenFundraiser?.(-1); }}
+        />
+      )}
 
       {/* Forward dialog */}
       {forwardMsgId !== null && (

@@ -311,6 +311,8 @@ export function ChatInput({
   onCancelReply,
   editing,
   onCancelEdit,
+  onSendGift,
+  onAttachFundraiser,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -331,6 +333,8 @@ export function ChatInput({
   onCancelReply?: () => void;
   editing?: Message | null;
   onCancelEdit?: () => void;
+  onSendGift?: () => void;
+  onAttachFundraiser?: () => void;
 }) {
   const [showEmoji, setShowEmoji] = useState(false);
   return (
@@ -390,6 +394,24 @@ export function ChatInput({
             >
               <Icon name="Video" size={20} className="text-rose-400" />
               <span className="text-[10px] text-muted-foreground">Кружок</span>
+            </button>
+          )}
+          {onSendGift && (
+            <button
+              onClick={onSendGift}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name="Zap" size={20} className="text-amber-400" />
+              <span className="text-[10px] text-muted-foreground">Подарок</span>
+            </button>
+          )}
+          {onAttachFundraiser && (
+            <button
+              onClick={onAttachFundraiser}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name="HandHeart" size={20} className="text-pink-400" />
+              <span className="text-[10px] text-muted-foreground">Сбор</span>
             </button>
           )}
         </div>

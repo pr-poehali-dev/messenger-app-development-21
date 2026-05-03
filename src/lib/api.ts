@@ -82,6 +82,24 @@ export interface Reaction {
   user_id: number;
 }
 
+export interface GiftPayload {
+  quantity: number;
+  message?: string;
+}
+export interface FundraiserPayload {
+  fundraiser_id: number;
+  title: string;
+  target_amount: number;
+  collected_amount: number;
+  cover_url?: string | null;
+}
+export interface StickerPayload {
+  pack_id: number;
+  sticker_id: number;
+  image_url: string;
+  emoji?: string;
+}
+
 export interface ReplyPreview {
   id: number;
   sender_name: string;
@@ -97,7 +115,8 @@ export interface Message {
   read?: boolean;
   sender_id?: number;
   sender_name?: string;
-  kind?: "text" | "missed_call" | "system";
+  kind?: "text" | "missed_call" | "system" | "gift" | "fundraiser" | "sticker";
+  payload?: GiftPayload | FundraiserPayload | StickerPayload | null;
   created_at?: number;
   image_url?: string;
   media_type?: "image" | "video" | "audio" | "file";
