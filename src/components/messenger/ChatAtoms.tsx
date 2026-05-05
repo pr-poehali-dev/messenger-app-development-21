@@ -68,10 +68,10 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
   const pinned = chats.filter(c => c.pinned);
   const rest = chats.filter(c => !c.pinned);
 
-  const ChatRow = ({ chat, i }: { chat: Chat; i: number }) => (
+  const ChatRow = ({ chat }: { chat: Chat }) => (
     <button
       onClick={() => onSelect(chat)}
-      className={`w-full flex items-center gap-3 px-4 py-3 transition-all duration-200 rounded-2xl mx-2 animate-fade-in stagger-${Math.min(i + 1, 5)}
+      className={`w-full flex items-center gap-3 px-4 py-3 transition-colors rounded-2xl mx-2
         ${selectedId === chat.id ? "bg-white/8 glass" : "hover:bg-white/4"}`}
     >
       <Avatar label={chat.avatar} id={chat.id} online={chat.online} src={chat.avatar_url || undefined} />
@@ -114,11 +114,11 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
       {pinned.length > 0 && (
         <>
           <div className="px-6 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Закреплённые</div>
-          {pinned.map((c, i) => <ChatRow key={c.id} chat={c} i={i} />)}
+          {pinned.map((c) => <ChatRow key={c.id} chat={c} />)}
           <div className="px-6 py-1 mt-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Все чаты</div>
         </>
       )}
-      {rest.map((c, i) => <ChatRow key={c.id} chat={c} i={i + pinned.length} />)}
+      {rest.map((c) => <ChatRow key={c.id} chat={c} />)}
     </div>
   );
 }

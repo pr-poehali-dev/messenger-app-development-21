@@ -251,6 +251,19 @@ export default function BotsPanel({
  "chat_id": <id>,
  "text":"Привет!"}`}</pre>
                     </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">Сообщение с inline-кнопками:</div>
+                      <pre className="bg-black/40 rounded-lg p-2 overflow-x-auto font-mono">{`{"action":"bot_send_message",
+ "token":"${opened.token}",
+ "chat_id": <id>,
+ "text":"Что выбираешь?",
+ "buttons":[
+   [{"text":"Да","callback_data":"yes"},
+    {"text":"Нет","callback_data":"no"}],
+   [{"text":"Сайт","url":"https://nova.app"}]
+ ]}`}</pre>
+                      <p className="text-muted-foreground mt-1">Когда юзер нажмёт кнопку — придёт update с type:&quot;callback&quot; и полем callback_data.</p>
+                    </div>
                   </div>
                 </details>
               </div>

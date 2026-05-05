@@ -20,6 +20,7 @@ import StickersStorePanel from "@/components/messenger/StickersStorePanel";
 import FundraiserPanel from "@/components/messenger/FundraiserPanel";
 import { AdminStickersPanel } from "@/components/messenger/AdminStickersPanel";
 import BotsPanel from "@/components/messenger/BotsPanel";
+import { RealStoriesBar, RealStoryViewer, type StoryGroup } from "@/components/messenger/RealStories";
 import ProgressPanel from "@/components/messenger/ProgressPanel";
 import { type Contact } from "@/lib/api";
 
@@ -59,6 +60,8 @@ export default function Index() {
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [viewingStory, setViewingStory] = useState<Story | null>(null);
+  const [storyView, setStoryView] = useState<{ groups: StoryGroup[]; startUserId: number } | null>(null);
+  const [storiesRefresh, setStoriesRefresh] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
   const [realChats, setRealChats] = useState<Chat[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -396,8 +399,19 @@ export default function Index() {
         />
       )}
 
-      {/* Story Viewer */}
+      {/* Story Viewer (legacy mock) */}
       {viewingStory && <StoryViewer story={viewingStory} onClose={() => setViewingStory(null)} />}
+
+      {/* Real Stories Viewer */}
+      {storyView && currentUser && (
+        <RealStoryViewer
+          groups={storyView.groups}
+          startUserId={storyView.startUserId}
+          currentUser={currentUser}
+          onClose={() => { setStoryView(null); setStoriesRefresh(k => k + 1); }}
+          onChanged={() => setStoriesRefresh(k => k + 1)}
+        />
+      )}
 
       {/* PWA install prompt */}
       <InstallPrompt />
@@ -484,7 +498,13 @@ export default function Index() {
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeTab === "chats" && (
             <>
-              <StoriesBar onView={setViewingStory} />
+              {currentUser && (
+              <RealStoriesBar
+                currentUser={currentUser}
+                refreshKey={storiesRefresh}
+                onOpen={(groups, startUserId) => setStoryView({ groups, startUserId })}
+              />
+            )}
               {showArchived && (
                 <button
                   onClick={() => setShowArchived(false)}
@@ -573,21 +593,16 @@ export default function Index() {
               </div>
             </>
           )}
-          {activeTab === "stories" && (
-            <div className="flex-1 flex flex-col items-center justify-center py-16 text-center px-8">
-              <div className="w-20 h-20 grad-primary rounded-3xl flex items-center justify-center mb-4 glow-primary">
-                <Icon name="Sparkles" size={32} className="text-white" />
-              </div>
-              <p className="font-bold text-lg mb-1">Истории — в разработке</p>
-              <p className="text-sm text-muted-foreground mb-4 max-w-xs">
-                Скоро здесь появятся реальные истории твоих контактов с просмотрами, реакциями и приватностью.
+          {activeTab === "stories" && currentUser && (
+            <div className="flex-1 overflow-y-auto p-4">
+              <RealStoriesBar
+                currentUser={currentUser}
+                refreshKey={storiesRefresh}
+                onOpen={(groups, startUserId) => setStoryView({ groups, startUserId })}
+              />
+              <p className="text-center text-xs text-muted-foreground mt-4">
+                Истории живут 24 часа. Видны только твоим контактам и тебе.
               </p>
-              <button
-                onClick={() => setShowComingSoon(true)}
-                className="px-5 py-2.5 rounded-2xl grad-primary text-white font-semibold text-sm hover:opacity-90"
-              >
-                Что ещё в работе
-              </button>
             </div>
           )}
         </div>

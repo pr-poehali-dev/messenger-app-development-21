@@ -403,6 +403,7 @@ def handler(event: dict, context) -> dict:
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
                 WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
+                  AND COALESCE(m.kind, 'text') <> 'bot_callback'
                 ORDER BY m.created_at ASC LIMIT 100""",
             (int(chat_id), effective_since)
         )
@@ -2598,6 +2599,132 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"items": items, "my_rank": my_rank, "scope": scope})
 
+    # ── STORIES (24h) ─────────────────────────────────────────────────────────
+
+    if action == "story_publish":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        media_url = (body.get("media_url") or "").strip()
+        caption = (body.get("caption") or "").strip()[:200] or None
+        if not media_url:
+            conn.close(); return err("Нужен media_url")
+        now = int(time.time())
+        expires = now + 24 * 3600
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.stories (user_id, media_url, media_type, caption, created_at, expires_at)
+                VALUES (%s, %s, 'image', %s, %s, %s) RETURNING id""",
+            (int(user_id), media_url, caption, now, expires)
+        )
+        sid = int(cur.fetchone()[0])
+        conn.close()
+        return ok({"id": sid, "expires_at": expires})
+
+    if action == "story_feed":
+        # Ленту собираем по контактам и моим (активные не истёкшие)
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        now = int(time.time())
+        cur.execute(
+            f"""SELECT s.id, s.user_id, u.name, u.avatar_url, s.media_url, s.caption, s.created_at, s.expires_at,
+                       EXISTS(SELECT 1 FROM {SCHEMA}.story_views v WHERE v.story_id=s.id AND v.viewer_id=%s) AS viewed
+                FROM {SCHEMA}.stories s
+                JOIN {SCHEMA}.users u ON u.id = s.user_id
+                WHERE s.expires_at > %s
+                  AND (
+                    s.user_id = %s
+                    OR s.user_id IN (SELECT contact_id FROM {SCHEMA}.contacts WHERE user_id=%s)
+                    OR %s IN (SELECT contact_id FROM {SCHEMA}.contacts WHERE user_id=s.user_id)
+                  )
+                ORDER BY s.user_id, s.created_at ASC""",
+            (int(user_id), now, int(user_id), int(user_id), int(user_id))
+        )
+        rows = cur.fetchall()
+        conn.close()
+        # Группируем по user_id
+        groups = {}
+        order = []
+        for r in rows:
+            uid = int(r[1])
+            if uid not in groups:
+                groups[uid] = {
+                    "user_id": uid, "user_name": r[2], "avatar_url": r[3],
+                    "is_me": uid == int(user_id),
+                    "stories": [], "all_viewed": True,
+                }
+                order.append(uid)
+            viewed = bool(r[8])
+            if not viewed and uid != int(user_id):
+                groups[uid]["all_viewed"] = False
+            groups[uid]["stories"].append({
+                "id": int(r[0]), "media_url": r[4], "caption": r[5],
+                "created_at": int(r[6]), "expires_at": int(r[7]), "viewed": viewed,
+            })
+        # Сначала «Моя», потом непросмотренные, потом просмотренные
+        items = [groups[u] for u in order]
+        items.sort(key=lambda g: (not g["is_me"], g["all_viewed"], -g["stories"][-1]["created_at"]))
+        return ok({"groups": items})
+
+    if action == "story_view":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("story_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный story_id")
+        if sid <= 0:
+            conn.close(); return err("Нужен story_id")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.story_views (story_id, viewer_id, viewed_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (story_id, viewer_id) DO NOTHING""",
+            (sid, int(user_id), now)
+        )
+        conn.close()
+        return ok({"viewed": True})
+
+    if action == "story_my_views":
+        # Вернуть просмотры моей истории (для меня же)
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("story_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный story_id")
+        cur.execute(f"SELECT user_id FROM {SCHEMA}.stories WHERE id=%s", (sid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        cur.execute(
+            f"""SELECT v.viewer_id, u.name, u.avatar_url, v.viewed_at
+                FROM {SCHEMA}.story_views v
+                JOIN {SCHEMA}.users u ON u.id = v.viewer_id
+                WHERE v.story_id=%s
+                ORDER BY v.viewed_at DESC LIMIT 200""",
+            (sid,)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"views": [{
+            "user_id": r[0], "name": r[1], "avatar_url": r[2], "viewed_at": int(r[3]),
+        } for r in rows]})
+
+    if action == "story_delete":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("story_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный story_id")
+        cur.execute(f"SELECT user_id FROM {SCHEMA}.stories WHERE id=%s", (sid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        # Не удаляем, а помечаем просроченной
+        cur.execute(f"UPDATE {SCHEMA}.stories SET expires_at=%s WHERE id=%s", (int(time.time()) - 1, sid))
+        conn.close()
+        return ok({"removed": True})
+
     # ── BOT API ───────────────────────────────────────────────────────────────
 
     if action == "bot_create":
@@ -2727,7 +2854,7 @@ def handler(event: dict, context) -> dict:
             conn.close(); return err("Неверный токен", 403)
         bot_id = int(rr[0])
         cur.execute(
-            f"""SELECT m.id, m.chat_id, m.sender_id, u.name, m.text, m.created_at
+            f"""SELECT m.id, m.chat_id, m.sender_id, u.name, m.text, m.created_at, m.kind, m.payload_json
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.chats c ON c.id = m.chat_id
                 JOIN {SCHEMA}.users u ON u.id = m.sender_id
@@ -2740,10 +2867,23 @@ def handler(event: dict, context) -> dict:
         )
         rows = cur.fetchall()
         conn.close()
-        return ok({"updates": [{
-            "message_id": r[0], "chat_id": r[1], "from_user_id": r[2],
-            "from_user_name": r[3], "text": r[4] or "", "created_at": int(r[5]),
-        } for r in rows]})
+        out = []
+        for r in rows:
+            kind = r[6] or "text"
+            payload = None
+            if r[7]:
+                try: payload = json.loads(r[7])
+                except Exception: payload = None
+            entry = {
+                "message_id": r[0], "chat_id": r[1], "from_user_id": r[2],
+                "from_user_name": r[3], "text": r[4] or "", "created_at": int(r[5]),
+                "type": "callback" if kind == "bot_callback" else "message",
+            }
+            if kind == "bot_callback" and isinstance(payload, dict):
+                entry["callback_data"] = payload.get("callback_data")
+                entry["source_message_id"] = payload.get("source_message_id")
+            out.append(entry)
+        return ok({"updates": out})
 
     if action == "bot_send_message":
         token = (body.get("token") or "").strip()
@@ -2752,6 +2892,7 @@ def handler(event: dict, context) -> dict:
         except (TypeError, ValueError):
             conn.close(); return err("Неверный chat_id")
         text = (body.get("text") or "").strip()[:4000]
+        buttons_in = body.get("buttons")
         if not token or not chat_id or not text:
             conn.close(); return err("Нужны token, chat_id, text")
         cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE bot_token=%s AND is_bot=true", (token,))
@@ -2764,11 +2905,33 @@ def handler(event: dict, context) -> dict:
         cr = cur.fetchone()
         if not cr or bot_id not in (int(cr[0]), int(cr[1])):
             conn.close(); return err("Бот не участник чата", 403)
+        # Валидация кнопок: массив рядов, каждый ряд — массив {text, callback_data?, url?}
+        buttons_clean = None
+        if isinstance(buttons_in, list) and buttons_in:
+            rows_clean = []
+            for row in buttons_in[:8]:
+                if not isinstance(row, list): continue
+                row_clean = []
+                for btn in row[:4]:
+                    if not isinstance(btn, dict): continue
+                    btxt = str(btn.get("text") or "").strip()[:32]
+                    if not btxt: continue
+                    bcb = str(btn.get("callback_data") or "")[:64] or None
+                    burl = str(btn.get("url") or "").strip()[:300] or None
+                    if burl and not (burl.startswith("http://") or burl.startswith("https://")):
+                        burl = None
+                    row_clean.append({"text": btxt, "callback_data": bcb, "url": burl})
+                if row_clean:
+                    rows_clean.append(row_clean)
+            if rows_clean:
+                buttons_clean = rows_clean
         now = int(time.time())
+        kind = "bot_message" if buttons_clean else "text"
+        payload_json = json.dumps({"buttons": buttons_clean}, ensure_ascii=False) if buttons_clean else None
         cur.execute(
-            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind)
-                VALUES (%s, %s, %s, %s, 'text') RETURNING id""",
-            (chat_id, bot_id, text, now)
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind, payload_json)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+            (chat_id, bot_id, text, now, kind, payload_json)
         )
         mid = int(cur.fetchone()[0])
         cur.execute(
@@ -2777,6 +2940,62 @@ def handler(event: dict, context) -> dict:
         )
         conn.close()
         return ok({"message_id": mid, "created_at": now})
+
+    if action == "bot_callback":
+        # Юзер нажал inline-кнопку
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+            message_id = int(body.get("message_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверные параметры")
+        callback_data = str(body.get("callback_data") or "")[:64]
+        if not chat_id or not message_id or not callback_data:
+            conn.close(); return err("Нужны chat_id, message_id, callback_data")
+        # Проверяем — сообщение реально от бота этого чата
+        cur.execute(
+            f"""SELECT m.sender_id, c.user1_id, c.user2_id, u.is_bot
+                FROM {SCHEMA}.messages m
+                JOIN {SCHEMA}.chats c ON c.id = m.chat_id
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE m.id=%s AND m.chat_id=%s""",
+            (message_id, chat_id)
+        )
+        rr = cur.fetchone()
+        if not rr or not rr[3]:
+            conn.close(); return err("Сообщение не от бота", 400)
+        if int(user_id) not in (int(rr[1]), int(rr[2])):
+            conn.close(); return err("Нет доступа к чату", 403)
+        bot_id = int(rr[0])
+        now = int(time.time())
+        # Записываем callback как невидимое юзерам сервисное сообщение для бота
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind, payload_json)
+                VALUES (%s, %s, %s, %s, 'bot_callback', %s) RETURNING id""",
+            (chat_id, int(user_id), "", now,
+             json.dumps({"callback_data": callback_data, "source_message_id": message_id}, ensure_ascii=False))
+        )
+        cb_id = int(cur.fetchone()[0])
+        # Стрельнём webhook боту
+        cur.execute(f"SELECT bot_webhook_url FROM {SCHEMA}.users WHERE id=%s", (bot_id,))
+        wh_row = cur.fetchone()
+        if wh_row and wh_row[0]:
+            try:
+                wh_body = json.dumps({
+                    "callback_id": cb_id,
+                    "chat_id": chat_id,
+                    "from_user_id": int(user_id),
+                    "callback_data": callback_data,
+                    "source_message_id": message_id,
+                    "created_at": now,
+                }).encode("utf-8")
+                req2 = urllib.request.Request(wh_row[0], data=wh_body, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req2, timeout=3)
+            except Exception:
+                pass
+        conn.close()
+        return ok({"callback_id": cb_id})
 
     conn.close()
     return err("Неизвестный action")

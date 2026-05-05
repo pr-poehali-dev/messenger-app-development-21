@@ -115,8 +115,8 @@ export interface Message {
   read?: boolean;
   sender_id?: number;
   sender_name?: string;
-  kind?: "text" | "missed_call" | "system" | "gift" | "fundraiser" | "sticker";
-  payload?: GiftPayload | FundraiserPayload | StickerPayload | null;
+  kind?: "text" | "missed_call" | "system" | "gift" | "fundraiser" | "sticker" | "bot_message";
+  payload?: GiftPayload | FundraiserPayload | StickerPayload | { buttons?: { text: string; callback_data?: string | null; url?: string | null }[][] } | null;
   created_at?: number;
   image_url?: string;
   media_type?: "image" | "video" | "audio" | "file";

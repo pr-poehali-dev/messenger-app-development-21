@@ -16,6 +16,7 @@ import { GiftSendModal, FundraiserAttachModal } from "@/components/messenger/Cha
 import StickerPicker from "@/components/messenger/StickerPicker";
 import DisappearingModal from "@/components/messenger/DisappearingModal";
 import ExpiringIndicator from "@/components/messenger/ExpiringIndicator";
+import BotInlineButtons, { type InlineButton } from "@/components/messenger/BotInlineButtons";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
@@ -720,6 +721,18 @@ export function ChatWindow({
                       onReact={(emoji) => addReaction(msg.id, emoji)}
                     />
                   )}
+                  {(() => {
+                    const p = msg.payload as { buttons?: InlineButton[][] } | null | undefined;
+                    if (!p?.buttons || !Array.isArray(p.buttons) || p.buttons.length === 0) return null;
+                    return (
+                      <BotInlineButtons
+                        rows={p.buttons}
+                        chatId={chat.id}
+                        messageId={msg.id}
+                        currentUserId={currentUser.id}
+                      />
+                    );
+                  })()}
                 </div>
               </SwipeableMessage>
             );
