@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
-import { api, pushApi, urlBase64ToUint8Array, type View, type Tab, type Chat, type User, type Story, type Group, STORIES } from "@/lib/api";
-import { StoriesBar, ChatList, ChatWindow, Avatar } from "@/components/messenger/ChatComponents";
-import { StoryViewer, SearchPanel, ProfilePanel, SettingsPanel } from "@/components/messenger/Panels";
+import { api, pushApi, urlBase64ToUint8Array, type View, type Tab, type Chat, type User, type Group } from "@/lib/api";
+import { ChatList, ChatWindow, Avatar } from "@/components/messenger/ChatComponents";
+import { SearchPanel, ProfilePanel, SettingsPanel } from "@/components/messenger/Panels";
 import { AuthScreen } from "@/components/messenger/AuthScreen";
 import { ContactsPanel } from "@/components/messenger/ContactsPanel";
 import { CallScreen } from "@/components/messenger/CallScreen";
@@ -23,6 +23,34 @@ import BotsPanel from "@/components/messenger/BotsPanel";
 import { RealStoriesBar, RealStoryViewer, type StoryGroup } from "@/components/messenger/RealStories";
 import ProgressPanel from "@/components/messenger/ProgressPanel";
 import { type Contact } from "@/lib/api";
+
+interface ChatRaw {
+  id: number;
+  last_message: string;
+  last_message_at: number;
+  partner: { id: number; name: string; last_seen: number; avatar_url?: string | null };
+  unread: number;
+  muted?: boolean;
+  pinned?: boolean;
+  favorite?: boolean;
+}
+
+function mapChat(c: ChatRaw): Chat {
+  return {
+    id: c.id,
+    name: c.partner.name,
+    avatar: c.partner.name[0]?.toUpperCase() || "?",
+    avatar_url: c.partner.avatar_url || null,
+    lastMsg: c.last_message || "Нет сообщений",
+    time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
+    unread: c.unread || 0,
+    online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
+    partner_id: c.partner.id,
+    muted: c.muted || false,
+    pinned: c.pinned || false,
+    favorite: c.favorite || false,
+  };
+}
 
 export default function Index() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -59,7 +87,6 @@ export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>("chats");
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
-  const [viewingStory, setViewingStory] = useState<Story | null>(null);
   const [storyView, setStoryView] = useState<{ groups: StoryGroup[]; startUserId: number } | null>(null);
   const [storiesRefresh, setStoriesRefresh] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
@@ -144,20 +171,7 @@ export default function Index() {
       const data = await api("get_chats", { archived: showArchived }, currentUser.id);
       if (typeof data.archived_count === "number") setArchivedCount(data.archived_count);
       if (data.chats) {
-        const mapped: Chat[] = data.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number; avatar_url?: string | null }; unread: number; muted?: boolean; pinned?: boolean; favorite?: boolean }) => ({
-          id: c.id,
-          name: c.partner.name,
-          avatar: c.partner.name[0]?.toUpperCase() || "?",
-          avatar_url: c.partner.avatar_url || null,
-          lastMsg: c.last_message || "Нет сообщений",
-          time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
-          unread: c.unread || 0,
-          online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
-          partner_id: c.partner.id,
-          muted: c.muted || false,
-          pinned: c.pinned || false,
-          favorite: c.favorite || false,
-        }));
+        const mapped: Chat[] = data.chats.map(mapChat);
         // Обновляем только если реально что-то изменилось — иначе мигают ники
         setRealChats(prev => {
           const prevStr = JSON.stringify(prev.map(c => ({ id: c.id, lastMsg: c.lastMsg, unread: c.unread, online: c.online, time: c.time, muted: c.muted, pinned: c.pinned, favorite: c.favorite })));
@@ -210,19 +224,7 @@ export default function Index() {
       setView("chats");
       setShowSidebar(false);
       const chatsData = await api("get_chats", {}, currentUser.id);
-      if (chatsData.chats) {
-        setRealChats(chatsData.chats.map((c: { id: number; last_message: string; last_message_at: number; partner: { id: number; name: string; last_seen: number; avatar_url?: string | null }; unread: number }) => ({
-          id: c.id,
-          name: c.partner.name,
-          avatar: c.partner.name[0]?.toUpperCase() || "?",
-          avatar_url: c.partner.avatar_url || null,
-          lastMsg: c.last_message || "Нет сообщений",
-          time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
-          unread: c.unread || 0,
-          online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
-          partner_id: c.partner.id,
-        })));
-      }
+      if (chatsData.chats) setRealChats(chatsData.chats.map(mapChat));
     }
   };
 
@@ -398,9 +400,6 @@ export default function Index() {
           onClose={() => setActiveCall(null)}
         />
       )}
-
-      {/* Story Viewer (legacy mock) */}
-      {viewingStory && <StoryViewer story={viewingStory} onClose={() => setViewingStory(null)} />}
 
       {/* Real Stories Viewer */}
       {storyView && currentUser && (

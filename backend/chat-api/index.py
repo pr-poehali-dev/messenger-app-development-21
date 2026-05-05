@@ -2725,6 +2725,65 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"removed": True})
 
+    if action == "story_reply":
+        # Ответ на историю — отправляем сообщение в личку автору с цитатой истории
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("story_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный story_id")
+        text = (body.get("text") or "").strip()[:500]
+        emoji = (body.get("emoji") or "").strip()[:8]
+        if not text and not emoji:
+            conn.close(); return err("Нужен text или emoji")
+        if sid <= 0:
+            conn.close(); return err("Нужен story_id")
+        cur.execute(
+            f"SELECT user_id, media_url, caption, expires_at FROM {SCHEMA}.stories WHERE id=%s",
+            (sid,)
+        )
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("История не найдена", 404)
+        author_id = int(rr[0])
+        if author_id == int(user_id):
+            conn.close(); return err("Нельзя отвечать на свою историю", 400)
+        media_url = rr[1]
+        caption = rr[2]
+        # Получаем/создаём чат
+        u1, u2 = sorted([int(user_id), author_id])
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chats (user1_id, user2_id, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user1_id, user2_id) DO UPDATE SET user1_id = EXCLUDED.user1_id
+                RETURNING id""",
+            (u1, u2, int(time.time()))
+        )
+        chat_id = int(cur.fetchone()[0])
+        now = int(time.time())
+        msg_text = (emoji + " " + text).strip() if emoji else text
+        payload = {
+            "story_id": sid,
+            "story_media_url": media_url,
+            "story_caption": caption,
+            "story_author_id": author_id,
+        }
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages
+                (chat_id, sender_id, text, created_at, kind, payload_json)
+                VALUES (%s, %s, %s, %s, 'story_reply', %s) RETURNING id""",
+            (chat_id, int(user_id), msg_text, now, json.dumps(payload, ensure_ascii=False))
+        )
+        mid = int(cur.fetchone()[0])
+        last_msg_preview = (emoji + " " + (text or "Ответ на историю")).strip()
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s",
+            (last_msg_preview[:100], now, chat_id)
+        )
+        conn.close()
+        return ok({"message_id": mid, "chat_id": chat_id})
+
     # ── BOT API ───────────────────────────────────────────────────────────────
 
     if action == "bot_create":

@@ -19,7 +19,7 @@ import ExpiringIndicator from "@/components/messenger/ExpiringIndicator";
 import BotInlineButtons, { type InlineButton } from "@/components/messenger/BotInlineButtons";
 
 // Re-export atoms so existing imports from ChatComponents still work
-export { Avatar, TypingIndicator, StoriesBar, ChatList } from "@/components/messenger/ChatAtoms";
+export { Avatar, TypingIndicator, ChatList } from "@/components/messenger/ChatAtoms";
 
 // Магические числа/строки в одном месте
 const SCROLL_NEAR_BOTTOM_PX = 120;
@@ -668,6 +668,23 @@ export function ChatWindow({
                           {msg.reply_to.text || (msg.reply_to.media_type === "image" ? "📷 Фото" : msg.reply_to.media_type === "video" ? "🎥 Видео" : "[медиа]")}
                         </div>
                       </button>
+                    )}
+                    {msg.kind === "story_reply" && msg.payload && (msg.payload as { story_media_url?: string }).story_media_url && (
+                      <div className={`mx-2 mt-2 mb-1 flex items-center gap-2 rounded-xl p-1.5 pr-3 ${msg.out ? "bg-white/15" : "bg-white/5"}`}>
+                        <img
+                          src={(msg.payload as { story_media_url: string }).story_media_url}
+                          alt="story"
+                          className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className={`text-[10px] uppercase tracking-wide font-bold ${msg.out ? "text-white/70" : "text-violet-400"}`}>Ответ на историю</div>
+                          {(msg.payload as { story_caption?: string | null }).story_caption && (
+                            <div className={`text-xs truncate ${msg.out ? "text-white/80" : "text-muted-foreground"}`}>
+                              {(msg.payload as { story_caption: string }).story_caption}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     )}
                     {(msg.media_url || msg.image_url) && (
                       <div className="p-1.5">

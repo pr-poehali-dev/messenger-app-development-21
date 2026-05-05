@@ -1,5 +1,5 @@
 import Icon from "@/components/ui/icon";
-import { avatarGrad, type Chat, type Story, STORIES } from "@/lib/api";
+import { avatarGrad, type Chat } from "@/lib/api";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -29,35 +29,6 @@ export function TypingIndicator() {
       <div className="typing-dot w-2 h-2 rounded-full bg-violet-400" />
       <div className="typing-dot w-2 h-2 rounded-full bg-violet-400" />
       <div className="typing-dot w-2 h-2 rounded-full bg-violet-400" />
-    </div>
-  );
-}
-
-// ─── StoriesBar ───────────────────────────────────────────────────────────────
-
-export function StoriesBar({ onView }: { onView: (s: Story) => void }) {
-  return (
-    <div className="flex gap-3 px-4 py-3 overflow-x-auto no-scrollbar">
-      {STORIES.map((s, i) => (
-        <button
-          key={s.id}
-          onClick={() => onView(s)}
-          className={`flex flex-col items-center gap-1.5 flex-shrink-0 animate-fade-in stagger-${Math.min(i + 1, 5)}`}
-        >
-          <div className={`p-[2px] rounded-full bg-gradient-to-br ${s.seen ? "from-gray-600 to-gray-500 opacity-50" : s.gradient}`}>
-            <div className="w-14 h-14 rounded-full glass flex items-center justify-center font-bold text-white text-xl border-2 border-[hsl(var(--background))]">
-              {s.id === 0 ? (
-                <Icon name="Plus" size={22} className="text-violet-400" />
-              ) : (
-                <div className={`w-full h-full rounded-full bg-gradient-to-br ${avatarGrad(s.id)} flex items-center justify-center text-base font-bold`}>
-                  {s.avatar}
-                </div>
-              )}
-            </div>
-          </div>
-          <span className="text-[10px] text-muted-foreground w-16 truncate text-center">{s.name}</span>
-        </button>
-      ))}
     </div>
   );
 }

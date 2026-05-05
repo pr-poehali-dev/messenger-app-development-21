@@ -135,6 +135,7 @@ export function RealStoryViewer({
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
   const [showViews, setShowViews] = useState<{ id: number; views: { user_id: number; name: string; viewed_at: number }[] } | null>(null);
+  const [sentToast, setSentToast] = useState("");
 
   const group = groups[groupIdx];
   const story = group?.stories[storyIdx];
@@ -257,18 +258,33 @@ export function RealStoryViewer({
         aria-label="Вперёд"
       />
 
-      {/* Подпись + просмотры */}
+      {/* Подпись + просмотры / ответ на историю */}
       <div className="absolute bottom-0 left-0 right-0 z-20 p-4 pb-6 bg-gradient-to-t from-black/70 to-transparent" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }} onClick={e => e.stopPropagation()}>
         {story.caption && (
-          <p className="text-white text-sm mb-2 text-center">{story.caption}</p>
+          <p className="text-white text-sm mb-3 text-center">{story.caption}</p>
         )}
-        {group.is_me && (
+        {group.is_me ? (
           <button onClick={openViews} className="mx-auto flex items-center gap-1.5 text-white/80 text-xs glass rounded-full px-3 py-1.5">
             <Icon name="Eye" size={12} />
             Кто смотрел
           </button>
+        ) : (
+          <StoryReplyBar
+            storyId={story.id}
+            authorName={group.user_name}
+            currentUserId={currentUser.id}
+            onSent={() => { setSentToast("Ответ отправлен"); setTimeout(() => setSentToast(""), 1500); }}
+            onFocusChange={setPaused}
+          />
         )}
       </div>
+
+      {sentToast && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/70 text-white text-sm rounded-2xl px-4 py-2 flex items-center gap-2 animate-fade-in">
+          <Icon name="CheckCircle2" size={16} className="text-emerald-400" />
+          {sentToast}
+        </div>
+      )}
 
       {showViews && (
         <div className="absolute inset-0 z-30 bg-black/70 flex items-end" onClick={() => { setShowViews(null); setPaused(false); }}>
@@ -295,6 +311,78 @@ export function RealStoryViewer({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const QUICK_EMOJI = ["❤️", "🔥", "👏", "😂", "😮", "😢"];
+
+function StoryReplyBar({
+  storyId,
+  authorName,
+  currentUserId,
+  onSent,
+  onFocusChange,
+}: {
+  storyId: number;
+  authorName: string;
+  currentUserId: number;
+  onSent: () => void;
+  onFocusChange: (focused: boolean) => void;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const sendReaction = async (emoji: string) => {
+    if (busy) return;
+    setBusy(true);
+    const r = await api("story_reply", { story_id: storyId, emoji }, currentUserId);
+    setBusy(false);
+    if (r && !r.error) onSent();
+  };
+  const sendText = async () => {
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    const r = await api("story_reply", { story_id: storyId, text: t }, currentUserId);
+    setBusy(false);
+    if (r && !r.error) { setText(""); onSent(); }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-center gap-2">
+        {QUICK_EMOJI.map(e => (
+          <button
+            key={e}
+            onClick={() => sendReaction(e)}
+            disabled={busy}
+            className="text-2xl active:scale-90 transition hover:scale-110 disabled:opacity-50"
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 glass-strong rounded-full pr-1 pl-4 py-1">
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onFocus={() => onFocusChange(true)}
+          onBlur={() => onFocusChange(false)}
+          onKeyDown={e => { if (e.key === "Enter") sendText(); }}
+          placeholder={`Ответить ${authorName}...`}
+          className="flex-1 bg-transparent outline-none text-sm text-white placeholder-white/50"
+        />
+        <button
+          onClick={sendText}
+          disabled={!text.trim() || busy}
+          className="w-9 h-9 rounded-full grad-primary flex items-center justify-center disabled:opacity-40"
+        >
+          {busy
+            ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <Icon name="Send" size={14} className="text-white" />}
+        </button>
+      </div>
     </div>
   );
 }

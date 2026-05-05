@@ -224,22 +224,85 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Нужен user_id")
         cur.execute(
-            f"SELECT id, phone, name, avatar_url, last_seen, created_at FROM {SCHEMA}.users WHERE id = %s",
+            f"""SELECT id, phone, name, avatar_url, last_seen, created_at,
+                       about, gender, birthdate, wallet_balance, pro_until,
+                       emoji_status, name_color, incognito, who_can_message, who_can_call,
+                       lightning_balance, pro_trial_used, stickers_subscription_until,
+                       xp, level, daily_streak, last_active_day,
+                       is_bot, bot_owner_id, bot_username, bot_description, bot_webhook_url
+                FROM {SCHEMA}.users WHERE id = %s""",
             (int(user_id),)
         )
         u = cur.fetchone()
         if not u:
             conn.close()
             return err("Не найден", 404)
-        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.messages WHERE sender_id = %s", (int(user_id),))
+        uid_int = int(user_id)
+        # Метрики
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.messages WHERE sender_id = %s", (uid_int,))
         msg_count = cur.fetchone()[0]
-        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.chats WHERE user1_id = %s OR user2_id = %s", (int(user_id), int(user_id)))
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.chats WHERE user1_id = %s OR user2_id = %s", (uid_int, uid_int))
         chat_count = cur.fetchone()[0]
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.contacts WHERE user_id = %s", (uid_int,))
+            contacts_count = cur.fetchone()[0]
+        except Exception:
+            conn.rollback(); cur = conn.cursor(); contacts_count = 0
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.stories WHERE user_id = %s AND expires_at > %s", (uid_int, int(time.time())))
+            active_stories = cur.fetchone()[0]
+        except Exception:
+            conn.rollback(); cur = conn.cursor(); active_stories = 0
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.push_subscriptions WHERE user_id = %s", (uid_int,))
+            push_count = cur.fetchone()[0]
+        except Exception:
+            conn.rollback(); cur = conn.cursor(); push_count = 0
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.user_blocks WHERE user_id = %s", (uid_int,))
+            blocks_out = cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.user_blocks WHERE blocked_id = %s", (uid_int,))
+            blocks_in = cur.fetchone()[0]
+        except Exception:
+            conn.rollback(); cur = conn.cursor(); blocks_out = 0; blocks_in = 0
+        # Последняя активность по сообщениям
+        cur.execute(f"SELECT MAX(created_at) FROM {SCHEMA}.messages WHERE sender_id = %s", (uid_int,))
+        last_msg_at = cur.fetchone()[0]
+        # Боты, которыми владеет
+        try:
+            cur.execute(f"SELECT id, name, bot_username FROM {SCHEMA}.users WHERE bot_owner_id = %s ORDER BY id", (uid_int,))
+            owned_bots = [{"id": r[0], "name": r[1], "username": r[2]} for r in cur.fetchall()]
+        except Exception:
+            conn.rollback(); cur = conn.cursor(); owned_bots = []
         conn.close()
+        now = int(time.time())
+        bd = u[8].isoformat() if u[8] else None
         return ok({"user": {
             "id": u[0], "phone": u[1], "name": u[2], "avatar_url": u[3],
             "last_seen": u[4], "created_at": u[5],
+            "about": u[6], "gender": u[7], "birthdate": bd,
+            "wallet_balance": float(u[9]) if u[9] is not None else 0.0,
+            "pro_until": u[10],
+            "is_pro": bool(u[10] and u[10] > now),
+            "emoji_status": u[11], "name_color": u[12],
+            "incognito": bool(u[13]),
+            "who_can_message": u[14], "who_can_call": u[15],
+            "lightning_balance": u[16] or 0,
+            "pro_trial_used": bool(u[17]),
+            "stickers_subscription_until": u[18],
+            "xp": u[19] or 0, "level": u[20] or 1, "daily_streak": u[21] or 0,
+            "last_active_day": u[22],
+            "is_bot": bool(u[23]),
+            "bot_owner_id": u[24], "bot_username": u[25],
+            "bot_description": u[26], "bot_webhook_url": u[27],
             "msg_count": msg_count, "chat_count": chat_count,
+            "contacts_count": contacts_count,
+            "active_stories": active_stories,
+            "push_subscriptions": push_count,
+            "blocks_out": blocks_out, "blocks_in": blocks_in,
+            "last_message_at": last_msg_at,
+            "owned_bots": owned_bots,
+            "online": bool(u[4] and (now - int(u[4])) < 300),
         }})
 
     # ── send_to_user — написать пользователю от имени разработчика ───────────

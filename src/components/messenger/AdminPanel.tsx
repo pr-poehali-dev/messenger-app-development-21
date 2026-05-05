@@ -34,7 +34,21 @@ interface Stats {
 
 interface AdminUser {
   id: number; phone: string; name: string; last_seen: number; created_at: number;
-  online: boolean; msg_count?: number; chat_count?: number;
+  online: boolean; avatar_url?: string | null;
+  msg_count?: number; chat_count?: number; contacts_count?: number;
+  active_stories?: number; push_subscriptions?: number;
+  blocks_out?: number; blocks_in?: number;
+  about?: string | null; gender?: string | null; birthdate?: string | null;
+  wallet_balance?: number; pro_until?: number | null; is_pro?: boolean;
+  emoji_status?: string | null; name_color?: string | null; incognito?: boolean;
+  who_can_message?: string; who_can_call?: string;
+  lightning_balance?: number; pro_trial_used?: boolean;
+  stickers_subscription_until?: number | null;
+  xp?: number; level?: number; daily_streak?: number;
+  is_bot?: boolean; bot_owner_id?: number | null;
+  bot_username?: string | null; bot_description?: string | null; bot_webhook_url?: string | null;
+  last_message_at?: number | null;
+  owned_bots?: { id: number; name: string; username: string }[];
 }
 
 const LOAD_COLOR: Record<string, string> = {
@@ -530,8 +544,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             {users.map(u => (
               <div key={u.id} className="w-full glass rounded-2xl p-4 flex items-center gap-3 hover:bg-white/8 transition-colors group">
                 <button onClick={() => openUser(u)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-base flex-shrink-0 ${u.online ? "bg-gradient-to-br from-emerald-500 to-teal-500" : "bg-gradient-to-br from-violet-500 to-indigo-500"}`}>
-                    {u.name[0]?.toUpperCase()}
+                  <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center font-bold text-white text-base flex-shrink-0 ${u.online ? "bg-gradient-to-br from-emerald-500 to-teal-500" : "bg-gradient-to-br from-violet-500 to-indigo-500"}`}>
+                    {u.avatar_url
+                      ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                      : u.name[0]?.toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -561,30 +577,104 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       {/* User detail modal */}
       {selectedUser && (
         <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/60 animate-fade-in" onClick={() => setSelectedUser(null)}>
-          <div className="w-full max-w-lg glass-strong rounded-t-3xl p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg glass-strong rounded-t-3xl p-6 animate-fade-in max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">Пользователь #{selectedUser.id}</h3>
               <button onClick={() => setSelectedUser(null)} className="p-2 glass rounded-xl text-muted-foreground">
                 <Icon name="X" size={16} />
               </button>
             </div>
-            <div className="space-y-2 mb-4 text-sm">
-              <div className="flex justify-between py-1.5 border-b border-white/5">
-                <span className="text-muted-foreground">Телефон</span><span className="font-mono">{selectedUser.phone}</span>
+
+            {/* Шапка — аватар + имя + статус */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
+                {selectedUser.avatar_url
+                  ? <img src={selectedUser.avatar_url} alt={selectedUser.name} className="w-full h-full object-cover" />
+                  : selectedUser.name[0]?.toUpperCase()}
               </div>
-              <div className="flex justify-between py-1.5 border-b border-white/5">
-                <span className="text-muted-foreground">Зарегистрирован</span><span>{fmtDate(selectedUser.created_at)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-white/5">
-                <span className="text-muted-foreground">Последний вход</span><span>{fmtTime(selectedUser.last_seen || 0)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-white/5">
-                <span className="text-muted-foreground">Сообщений</span><span className="font-bold">{selectedUser.msg_count ?? "—"}</span>
-              </div>
-              <div className="flex justify-between py-1.5">
-                <span className="text-muted-foreground">Чатов</span><span className="font-bold">{selectedUser.chat_count ?? "—"}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-base truncate" style={selectedUser.name_color ? { color: selectedUser.name_color } : undefined}>
+                    {selectedUser.name}
+                  </span>
+                  {selectedUser.emoji_status && <span className="text-base">{selectedUser.emoji_status}</span>}
+                  {selectedUser.is_pro && <span className="text-[10px] grad-primary text-white px-2 py-0.5 rounded-full font-bold">PRO</span>}
+                  {selectedUser.is_bot && <span className="text-[10px] bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-full font-bold">BOT</span>}
+                  {selectedUser.online && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">online</span>}
+                  {selectedUser.incognito && <span className="text-[10px] bg-white/10 text-white/70 px-2 py-0.5 rounded-full font-bold">incognito</span>}
+                </div>
+                <p className="text-xs text-muted-foreground font-mono">{selectedUser.phone}</p>
+                {selectedUser.about && <p className="text-xs text-muted-foreground mt-0.5 italic line-clamp-2">«{selectedUser.about}»</p>}
               </div>
             </div>
+
+            {/* Метрики */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <DevStat label="Сообщений" value={selectedUser.msg_count ?? 0} />
+              <DevStat label="Чатов" value={selectedUser.chat_count ?? 0} />
+              <DevStat label="Контактов" value={selectedUser.contacts_count ?? 0} />
+              <DevStat label="Историй" value={selectedUser.active_stories ?? 0} />
+              <DevStat label="Заблочил" value={selectedUser.blocks_out ?? 0} />
+              <DevStat label="Заблочен" value={selectedUser.blocks_in ?? 0} />
+            </div>
+
+            {/* Прогресс */}
+            <div className="mb-4 grid grid-cols-3 gap-2">
+              <DevStat label="Уровень" value={selectedUser.level ?? 1} accent="violet" />
+              <DevStat label="XP" value={selectedUser.xp ?? 0} accent="violet" />
+              <DevStat label="Стрик" value={`${selectedUser.daily_streak ?? 0} 🔥`} accent="amber" />
+            </div>
+
+            {/* Кошельки */}
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <DevStat label="Баланс ₽" value={(selectedUser.wallet_balance ?? 0).toFixed(2)} accent="emerald" />
+              <DevStat label="Молнии ⚡" value={selectedUser.lightning_balance ?? 0} accent="amber" />
+            </div>
+
+            {/* Профиль и приватность */}
+            <div className="space-y-1.5 mb-4 text-xs">
+              <DevRow label="Зарегистрирован" value={fmtDate(selectedUser.created_at)} />
+              <DevRow label="Последний вход" value={fmtTime(selectedUser.last_seen || 0)} />
+              {selectedUser.last_message_at ? <DevRow label="Последнее сообщение" value={fmtTime(selectedUser.last_message_at)} /> : null}
+              {selectedUser.gender && <DevRow label="Пол" value={selectedUser.gender === "male" ? "мужской" : "женский"} />}
+              {selectedUser.birthdate && <DevRow label="Др" value={selectedUser.birthdate} />}
+              <DevRow label="Кто пишет" value={selectedUser.who_can_message ?? "everyone"} />
+              <DevRow label="Кто звонит" value={selectedUser.who_can_call ?? "everyone"} />
+              <DevRow label="Push-устройств" value={selectedUser.push_subscriptions ?? 0} />
+              {selectedUser.pro_until ? <DevRow label="PRO до" value={fmtDate(selectedUser.pro_until)} /> : null}
+              <DevRow label="PRO trial использован" value={selectedUser.pro_trial_used ? "да" : "нет"} />
+              {selectedUser.stickers_subscription_until ? <DevRow label="Стикеры до" value={fmtDate(selectedUser.stickers_subscription_until)} /> : null}
+            </div>
+
+            {/* BOT */}
+            {selectedUser.is_bot && (
+              <div className="mb-4 glass rounded-xl p-3 text-xs space-y-1.5">
+                <div className="font-bold text-sky-300 mb-1 flex items-center gap-1.5">
+                  <Icon name="Bot" size={13} /> Бот
+                </div>
+                {selectedUser.bot_username && <DevRow label="@" value={selectedUser.bot_username} />}
+                {selectedUser.bot_owner_id && <DevRow label="Владелец" value={`#${selectedUser.bot_owner_id}`} />}
+                {selectedUser.bot_webhook_url && <DevRow label="Webhook" value={selectedUser.bot_webhook_url} />}
+                {selectedUser.bot_description && <p className="text-muted-foreground italic mt-1">{selectedUser.bot_description}</p>}
+              </div>
+            )}
+
+            {/* Свои боты */}
+            {selectedUser.owned_bots && selectedUser.owned_bots.length > 0 && (
+              <div className="mb-4 glass rounded-xl p-3 text-xs">
+                <div className="font-bold mb-1.5 flex items-center gap-1.5">
+                  <Icon name="Bot" size={13} className="text-sky-300" /> Боты ({selectedUser.owned_bots.length})
+                </div>
+                <div className="space-y-1">
+                  {selectedUser.owned_bots.map(b => (
+                    <div key={b.id} className="flex justify-between">
+                      <span>{b.name}</span>
+                      <span className="text-muted-foreground font-mono">@{b.username}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 mb-2">
               <input
                 value={editName}
@@ -669,6 +759,31 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ACCENT_BG: Record<string, string> = {
+  violet: "bg-violet-500/10 border-violet-500/20 text-violet-200",
+  emerald: "bg-emerald-500/10 border-emerald-500/20 text-emerald-200",
+  amber: "bg-amber-500/10 border-amber-500/20 text-amber-200",
+};
+
+function DevStat({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
+  const cls = accent ? ACCENT_BG[accent] : "glass";
+  return (
+    <div className={`rounded-xl p-2.5 text-center border border-white/5 ${cls}`}>
+      <div className="text-base font-bold leading-tight">{value}</div>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function DevRow({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="flex justify-between gap-2 py-1 border-b border-white/5 last:border-b-0">
+      <span className="text-muted-foreground flex-shrink-0">{label}</span>
+      <span className="font-mono text-right break-all">{value}</span>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { api, avatarGrad, uploadMedia, type Story, type User, type IconName, STORIES } from "@/lib/api";
+import { api, avatarGrad, uploadMedia, type User, type IconName } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatComponents";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import {
@@ -17,52 +17,6 @@ import { applyTheme, applyFontSize, getStoredTheme, getStoredFontSize, THEMES_ME
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;        // 5 МБ
 const MAX_RINGTONE_SIZE = 10 * 1024 * 1024;     // 10 МБ
 const MAX_ABOUT_LEN = 200;
-
-// ─── StoryViewer ──────────────────────────────────────────────────────────────
-
-export function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) {
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setProgress(p => { if (p >= 100) { onClose(); return 100; } return p + 2; }), 60);
-    return () => clearInterval(t);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-lg animate-scale-in">
-      <div className="relative w-full max-w-sm h-[85vh] rounded-3xl overflow-hidden">
-        <div className={`absolute inset-0 bg-gradient-to-br ${story.gradient}`} />
-        <div className="absolute inset-0 flex flex-col p-5">
-          <div className="w-full h-1 bg-white/20 rounded-full mb-4">
-            <div className="h-full bg-white rounded-full transition-none" style={{ width: `${progress}%` }} />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-white">{story.avatar}</div>
-            <span className="text-white font-semibold">{story.name}</span>
-            <span className="text-white/60 text-sm ml-auto">сейчас</span>
-            <button onClick={onClose} className="text-white/80 hover:text-white ml-2">
-              <Icon name="X" size={20} />
-            </button>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-white">
-              <div className="text-6xl mb-4">✨</div>
-              <p className="text-xl font-bold">История {story.name}</p>
-              <p className="text-white/60 mt-2 text-sm">Сегодня · 10 просмотров</p>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1 glass rounded-2xl px-4 py-3 flex items-center gap-2">
-              <input className="flex-1 bg-transparent outline-none text-white text-sm placeholder-white/40" placeholder="Ответить..." />
-            </div>
-            <button className="w-12 h-12 grad-primary rounded-2xl flex items-center justify-center text-white">
-              <Icon name="Send" size={18} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── SearchPanel ──────────────────────────────────────────────────────────────
 

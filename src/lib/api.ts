@@ -115,8 +115,11 @@ export interface Message {
   read?: boolean;
   sender_id?: number;
   sender_name?: string;
-  kind?: "text" | "missed_call" | "system" | "gift" | "fundraiser" | "sticker" | "bot_message";
-  payload?: GiftPayload | FundraiserPayload | StickerPayload | { buttons?: { text: string; callback_data?: string | null; url?: string | null }[][] } | null;
+  kind?: "text" | "missed_call" | "system" | "gift" | "fundraiser" | "sticker" | "bot_message" | "story_reply";
+  payload?: GiftPayload | FundraiserPayload | StickerPayload
+    | { buttons?: { text: string; callback_data?: string | null; url?: string | null }[][] }
+    | { story_id?: number; story_media_url?: string; story_caption?: string | null; story_author_id?: number }
+    | null;
   created_at?: number;
   image_url?: string;
   media_type?: "image" | "video" | "audio" | "file";
@@ -303,26 +306,10 @@ export interface GroupMessage {
   time?: string;
 }
 
-export interface Story {
-  id: number;
-  name: string;
-  avatar: string;
-  seen: boolean;
-  gradient: string;
-}
-
 export interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
-
-// ─── Data ────────────────────────────────────────────────────────────────────
-
-export const STORIES: Story[] = [
-  { id: 0, name: "Моя", avatar: "Я", seen: false, gradient: "from-violet-600 to-indigo-500" },
-];
-
-export const CHATS: Chat[] = [];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
