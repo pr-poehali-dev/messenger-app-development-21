@@ -2781,7 +2781,26 @@ def handler(event: dict, context) -> dict:
             f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s",
             (last_msg_preview[:100], now, chat_id)
         )
+        # Имя отправителя для пуша
+        cur.execute(f"SELECT name FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        sender_row = cur.fetchone()
+        sender_name = sender_row[0] if sender_row else "Кто-то"
         conn.close()
+        # Push автору истории
+        push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+        if push_url:
+            try:
+                push_payload = json.dumps({
+                    "action": "send",
+                    "recipient_id": author_id,
+                    "sender_name": sender_name,
+                    "message": f"📸 Ответ на историю: {(emoji + ' ' + text).strip()[:80]}" if text else f"📸 Отреагировал(а) {emoji} на историю",
+                    "chat_id": chat_id,
+                }).encode("utf-8")
+                req = urllib.request.Request(push_url, data=push_payload, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
         return ok({"message_id": mid, "chat_id": chat_id})
 
     # ── BOT API ───────────────────────────────────────────────────────────────
