@@ -69,7 +69,18 @@ export function StoryViewer({ story, onClose }: { story: Story; onClose: () => v
 export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users: User[]; currentUser: User; onStartChat: (id: number) => void; onBack?: () => void }) {
   useEdgeSwipeBack(onBack);
   const [query, setQuery] = useState("");
+  const [bots, setBots] = useState<{ id: number; name: string; username: string; description?: string | null; avatar_url?: string | null }[]>([]);
   const results = users.filter(u => !query || u.name.toLowerCase().includes(query.toLowerCase()) || u.phone.includes(query));
+  useEffect(() => {
+    const q = query.trim().replace(/^@/, "");
+    if (q.length < 2) { setBots([]); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      const r = await api("bot_search", { query: q }, currentUser.id);
+      if (alive && r && Array.isArray(r.bots)) setBots(r.bots);
+    }, 200);
+    return () => { alive = false; clearTimeout(t); };
+  }, [query, currentUser.id]);
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
@@ -100,6 +111,35 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 space-y-1">
+        {bots.length > 0 && (
+          <>
+            <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold flex items-center gap-1.5">
+              <Icon name="Bot" size={12} className="text-cyan-400" />
+              Боты
+            </div>
+            {bots.map(b => (
+              <button
+                key={`bot-${b.id}`}
+                onClick={() => onStartChat(b.id)}
+                className="w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all"
+              >
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                  style={{ background: "linear-gradient(135deg, #6366f1, #06b6d4)" }}>
+                  {b.avatar_url ? <img src={b.avatar_url} alt={b.name} className="w-full h-full object-cover rounded-full" /> : <Icon name="Bot" size={16} />}
+                </div>
+                <div className="text-left min-w-0 flex-1">
+                  <div className="font-semibold text-sm flex items-center gap-1">
+                    <span className="truncate">{b.name}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold flex-shrink-0">BOT</span>
+                  </div>
+                  <div className="text-xs text-violet-400 truncate">@{b.username}</div>
+                </div>
+                <Icon name="MessageCircle" size={18} className="text-violet-400 flex-shrink-0" />
+              </button>
+            ))}
+            <div className="h-2" />
+          </>
+        )}
         {!query && <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold">Все пользователи</div>}
         {results.map((u, i) => (
           <button key={u.id} onClick={() => onStartChat(u.id)} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
@@ -133,7 +173,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -515,6 +555,26 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
               </div>
               <Icon name="ChevronRight" size={20} className="text-white/60 flex-shrink-0" />
             </div>
+          </button>
+        </div>
+      )}
+
+      {/* Мои боты */}
+      {onOpenBots && (
+        <div className="px-4 mb-3">
+          <button
+            onClick={onOpenBots}
+            className="w-full glass rounded-2xl p-3 flex items-center gap-3 hover:bg-white/8 transition"
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #6366f1, #06b6d4)" }}>
+              <Icon name="Bot" size={18} className="text-white" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm font-bold truncate">Мои боты</div>
+              <div className="text-[11px] text-muted-foreground truncate">Создавай ботов для автоматизации</div>
+            </div>
+            <Icon name="ChevronRight" size={16} className="text-muted-foreground flex-shrink-0" />
           </button>
         </div>
       )}

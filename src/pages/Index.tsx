@@ -19,6 +19,7 @@ import LightningPanel from "@/components/messenger/LightningPanel";
 import StickersStorePanel from "@/components/messenger/StickersStorePanel";
 import FundraiserPanel from "@/components/messenger/FundraiserPanel";
 import { AdminStickersPanel } from "@/components/messenger/AdminStickersPanel";
+import BotsPanel from "@/components/messenger/BotsPanel";
 import ProgressPanel from "@/components/messenger/ProgressPanel";
 import { type Contact } from "@/lib/api";
 
@@ -78,6 +79,7 @@ export default function Index() {
   const [showStickers, setShowStickers] = useState(false);
   const [showAdminStickers, setShowAdminStickers] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
+  const [showBots, setShowBots] = useState(false);
   const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
 
   // Push-подписка
@@ -353,6 +355,16 @@ export default function Index() {
           currentUser={currentUser}
           onClose={() => setShowProgress(false)}
         />
+      )}
+
+      {/* Мои боты */}
+      {showBots && currentUser && (
+        <div className="fixed inset-0 z-[200] bg-[#0d0d1a] animate-fade-in">
+          <BotsPanel
+            currentUser={currentUser}
+            onBack={() => setShowBots(false)}
+          />
+        </div>
       )}
 
       {/* Fundraiser */}
@@ -668,6 +680,7 @@ export default function Index() {
             onOpenPro={() => setShowPro(true)}
             onOpenProSettings={() => setShowProSettings(true)}
             onOpenProgress={() => setShowProgress(true)}
+            onOpenBots={() => setShowBots(true)}
           />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />

@@ -588,6 +588,32 @@ def handler(event: dict, context) -> dict:
 
         if row:
             sender_name, recipient_id = row
+            # Webhook для бота-получателя
+            try:
+                conn2 = psycopg2.connect(DSN)
+                cur2 = conn2.cursor()
+                cur2.execute(
+                    f"SELECT bot_webhook_url FROM {SCHEMA}.users WHERE id=%s AND is_bot=true AND bot_webhook_url IS NOT NULL",
+                    (int(recipient_id),)
+                )
+                wh_row = cur2.fetchone()
+                conn2.close()
+                if wh_row and wh_row[0]:
+                    wh_body = json.dumps({
+                        "message_id": int(msg_id),
+                        "chat_id": int(chat_id),
+                        "from_user_id": int(user_id),
+                        "from_user_name": sender_name,
+                        "text": text or "",
+                        "created_at": now,
+                    }).encode("utf-8")
+                    try:
+                        req2 = urllib.request.Request(wh_row[0], data=wh_body, headers={"Content-Type": "application/json"})
+                        urllib.request.urlopen(req2, timeout=3)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             push_url = os.environ.get("PUSH_NOTIFY_URL", "")
             if push_url:
                 try:
@@ -2571,6 +2597,186 @@ def handler(event: dict, context) -> dict:
             my_rank = int(mr[0]) if mr else None
         conn.close()
         return ok({"items": items, "my_rank": my_rank, "scope": scope})
+
+    # ── BOT API ───────────────────────────────────────────────────────────────
+
+    if action == "bot_create":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        name = (body.get("name") or "").strip()
+        username = (body.get("username") or "").strip().lstrip("@").lower()
+        description = (body.get("description") or "").strip()[:300]
+        if not name or len(name) < 2:
+            conn.close(); return err("Имя бота слишком короткое")
+        if not username or not all(c.isalnum() or c == "_" for c in username) or len(username) < 3 or len(username) > 32:
+            conn.close(); return err("Username 3–32 символа: латиница, цифры, _")
+        if not username.endswith("bot"):
+            conn.close(); return err("Username бота должен заканчиваться на 'bot'")
+        cur.execute(f"SELECT 1 FROM {SCHEMA}.users WHERE LOWER(bot_username)=%s", (username,))
+        if cur.fetchone():
+            conn.close(); return err("Этот username занят")
+        # Лимит: не больше 10 ботов на пользователя
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users WHERE bot_owner_id=%s", (int(user_id),))
+        if int(cur.fetchone()[0]) >= 10:
+            conn.close(); return err("Нельзя иметь больше 10 ботов")
+        import secrets as _secrets
+        token = f"{int(user_id)}:{_secrets.token_urlsafe(32)}"
+        # У бота телефон-заглушка с префиксом @bot для уникальности
+        bot_phone = f"bot_{username}_{int(time.time())}"
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.users
+                (phone, name, is_bot, bot_owner_id, bot_username, bot_token, bot_description, about)
+                VALUES (%s, %s, true, %s, %s, %s, %s, %s) RETURNING id""",
+            (bot_phone, name, int(user_id), username, token, description or None, description or None)
+        )
+        bot_id = int(cur.fetchone()[0])
+        conn.close()
+        return ok({"id": bot_id, "name": name, "username": username, "token": token, "description": description})
+
+    if action == "bot_list_my":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, name, bot_username, bot_token, bot_description, bot_webhook_url, avatar_url
+                FROM {SCHEMA}.users WHERE bot_owner_id=%s ORDER BY id DESC""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"bots": [{
+            "id": r[0], "name": r[1], "username": r[2], "token": r[3],
+            "description": r[4], "webhook_url": r[5], "avatar_url": r[6],
+        } for r in rows]})
+
+    if action == "bot_update":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            bot_id = int(body.get("bot_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный bot_id")
+        cur.execute(f"SELECT bot_owner_id FROM {SCHEMA}.users WHERE id=%s AND is_bot=true", (bot_id,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        sets, params_ = [], []
+        if "name" in body and (body.get("name") or "").strip():
+            sets.append("name=%s"); params_.append((body.get("name") or "").strip()[:60])
+        if "description" in body:
+            sets.append("bot_description=%s"); params_.append((body.get("description") or "").strip()[:300] or None)
+        if "webhook_url" in body:
+            wh = (body.get("webhook_url") or "").strip()
+            if wh and not (wh.startswith("https://") or wh.startswith("http://")):
+                conn.close(); return err("Webhook URL должен начинаться с http:// или https://")
+            sets.append("bot_webhook_url=%s"); params_.append(wh or None)
+        if "avatar_url" in body:
+            sets.append("avatar_url=%s"); params_.append((body.get("avatar_url") or "").strip() or None)
+        if not sets:
+            conn.close(); return ok({"updated": False})
+        params_.append(bot_id)
+        cur.execute(f"UPDATE {SCHEMA}.users SET {', '.join(sets)} WHERE id=%s", tuple(params_))
+        conn.close()
+        return ok({"updated": True})
+
+    if action == "bot_revoke_token":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            bot_id = int(body.get("bot_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный bot_id")
+        cur.execute(f"SELECT bot_owner_id FROM {SCHEMA}.users WHERE id=%s AND is_bot=true", (bot_id,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        import secrets as _secrets
+        new_token = f"{bot_id}:{_secrets.token_urlsafe(32)}"
+        cur.execute(f"UPDATE {SCHEMA}.users SET bot_token=%s WHERE id=%s", (new_token, bot_id))
+        conn.close()
+        return ok({"token": new_token})
+
+    if action == "bot_search":
+        q = (body.get("query") or params.get("query") or "").strip().lstrip("@").lower()
+        if len(q) < 2:
+            conn.close(); return ok({"bots": []})
+        cur.execute(
+            f"""SELECT id, name, bot_username, bot_description, avatar_url
+                FROM {SCHEMA}.users
+                WHERE is_bot=true AND (LOWER(bot_username) LIKE %s OR LOWER(name) LIKE %s)
+                LIMIT 30""",
+            (f"%{q}%", f"%{q}%")
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"bots": [{
+            "id": r[0], "name": r[1], "username": r[2], "description": r[3], "avatar_url": r[4],
+        } for r in rows]})
+
+    if action == "bot_get_updates":
+        # Бот опрашивает новые сообщения; авторизация по токену
+        token = (body.get("token") or "").strip()
+        try:
+            since = int(body.get("since") or 0)
+        except (TypeError, ValueError):
+            since = 0
+        if not token:
+            conn.close(); return err("Нужен token")
+        cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE bot_token=%s AND is_bot=true", (token,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Неверный токен", 403)
+        bot_id = int(rr[0])
+        cur.execute(
+            f"""SELECT m.id, m.chat_id, m.sender_id, u.name, m.text, m.created_at
+                FROM {SCHEMA}.messages m
+                JOIN {SCHEMA}.chats c ON c.id = m.chat_id
+                JOIN {SCHEMA}.users u ON u.id = m.sender_id
+                WHERE (c.user1_id=%s OR c.user2_id=%s)
+                  AND m.sender_id <> %s
+                  AND m.created_at > %s
+                  AND m.removed_at IS NULL
+                ORDER BY m.created_at ASC LIMIT 100""",
+            (bot_id, bot_id, bot_id, since)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"updates": [{
+            "message_id": r[0], "chat_id": r[1], "from_user_id": r[2],
+            "from_user_name": r[3], "text": r[4] or "", "created_at": int(r[5]),
+        } for r in rows]})
+
+    if action == "bot_send_message":
+        token = (body.get("token") or "").strip()
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный chat_id")
+        text = (body.get("text") or "").strip()[:4000]
+        if not token or not chat_id or not text:
+            conn.close(); return err("Нужны token, chat_id, text")
+        cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE bot_token=%s AND is_bot=true", (token,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Неверный токен", 403)
+        bot_id = int(rr[0])
+        # Проверим что бот участник чата
+        cur.execute(f"SELECT user1_id, user2_id FROM {SCHEMA}.chats WHERE id=%s", (chat_id,))
+        cr = cur.fetchone()
+        if not cr or bot_id not in (int(cr[0]), int(cr[1])):
+            conn.close(); return err("Бот не участник чата", 403)
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, created_at, kind)
+                VALUES (%s, %s, %s, %s, 'text') RETURNING id""",
+            (chat_id, bot_id, text, now)
+        )
+        mid = int(cur.fetchone()[0])
+        cur.execute(
+            f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s",
+            (text[:100], now, chat_id)
+        )
+        conn.close()
+        return ok({"message_id": mid, "created_at": now})
 
     conn.close()
     return err("Неизвестный action")

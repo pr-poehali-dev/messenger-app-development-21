@@ -211,33 +211,42 @@ export function ChatWindow({
     typingTimerRef.current = setTimeout(() => { typingTimerRef.current = null; }, TYPING_THROTTLE_MS);
   };
 
+  const sendingRef = useRef(false);
   const send = async () => {
+    // Защита от двойного вызова (Android: keydown+click, ghost-tap, IME-коммит)
+    if (sendingRef.current) return;
     if (!input.trim()) return;
+    sendingRef.current = true;
     const text = input.trim();
     setInput("");
 
-    // edit-режим
-    if (editing) {
-      const editId = editing.id;
-      setEditing(null);
-      await api("edit_message", { message_id: editId, text }, currentUser.id);
-      setMessages(prev => prev.map(m => m.id === editId ? { ...m, text, edited_at: Math.floor(Date.now() / 1000) } : m));
-      return;
-    }
+    try {
+      // edit-режим
+      if (editing) {
+        const editId = editing.id;
+        setEditing(null);
+        await api("edit_message", { message_id: editId, text }, currentUser.id);
+        setMessages(prev => prev.map(m => m.id === editId ? { ...m, text, edited_at: Math.floor(Date.now() / 1000) } : m));
+        return;
+      }
 
-    const replyId = replyTo?.id;
-    const replyPreview = replyTo ? { id: replyTo.id, sender_name: replyTo.sender_name || (replyTo.out ? "Вы" : chat.name), text: replyTo.text, media_type: replyTo.media_type } : null;
-    setReplyTo(null);
+      const replyId = replyTo?.id;
+      const replyPreview = replyTo ? { id: replyTo.id, sender_name: replyTo.sender_name || (replyTo.out ? "Вы" : chat.name), text: replyTo.text, media_type: replyTo.media_type } : null;
+      setReplyTo(null);
 
-    const data = await api("send_message", {
-      chat_id: chat.id,
-      text,
-      reply_to_id: replyId,
-    }, currentUser.id);
-    if (data.id) {
-      const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-      setMessages(prev => [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at, reactions: [], reply_to: replyPreview }]);
-      setLastSince(data.created_at);
+      const data = await api("send_message", {
+        chat_id: chat.id,
+        text,
+        reply_to_id: replyId,
+      }, currentUser.id);
+      if (data.id) {
+        const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+        setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, { id: data.id, text, time: timeStr, out: true, created_at: data.created_at, reactions: [], reply_to: replyPreview }]);
+        setLastSince(data.created_at);
+      }
+    } finally {
+      // небольшой кулдаун, чтобы успел отработать second tap/keydown
+      setTimeout(() => { sendingRef.current = false; }, 250);
     }
   };
 

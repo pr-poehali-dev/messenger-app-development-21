@@ -141,20 +141,32 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
     };
 
     pc.ontrack = (e) => {
-      // Поток собеседника пошёл — рингтон/гудки больше не нужны
+      // Поток собеседника пошёл — рингтон/гудки больше не нужны, считаем что соединились
       stopRingtone();
       stopDialTone();
       const incoming = e.streams[0] || new MediaStream([e.track]);
       attachRemoteStream(incoming);
+      setState("connected");
+      startTimer();
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      if (s === "connected" || s === "completed") {
+        setState("connected");
+        startTimer();
+        if (remoteStreamRef.current) attachRemoteStream(remoteStreamRef.current);
+      } else if (s === "failed" || s === "closed") {
+        endCall("remote_hangup");
+      }
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
         setState("connected");
         startTimer();
-        // Повторно дёрнем play для надёжности после установления соединения
         if (remoteStreamRef.current) attachRemoteStream(remoteStreamRef.current);
-      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+      } else if (pc.connectionState === "failed") {
         endCall("remote_hangup");
       }
     };
@@ -172,11 +184,20 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await sendSignal("answer", { sdp: answer.sdp, type: answer.type });
+      stopRingtone();
+      stopDialTone();
+      setState("connected");
+      startTimer();
     } else if (sig.type === "answer") {
       if (pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription(new RTCSessionDescription(sig.payload as RTCSessionDescriptionInit));
       remoteDescSetRef.current = true;
       await flushPendingCandidates(pc);
+      // Собеседник принял — запускаем счётчик и снимаем гудки даже если ICE задерживается
+      stopRingtone();
+      stopDialTone();
+      setState("connected");
+      startTimer();
     } else if (sig.type === "candidate") {
       const cand = sig.payload as RTCIceCandidateInit;
       if (!remoteDescSetRef.current) {
@@ -271,7 +292,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
   return (
     <div
       className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-[#0d0d1a] py-16 px-8 animate-fade-in"
-      onClick={unlockAudio}
+      onPointerDown={unlockAudio}
     >
       <audio ref={remoteAudioRef} autoPlay playsInline />
 
@@ -289,7 +310,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
             style={{ opacity: state === "connected" ? 1 : 0 }}
           />
           <video
@@ -297,7 +318,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
             autoPlay
             playsInline
             muted
-            className="absolute bottom-32 right-4 w-28 h-40 object-cover rounded-2xl border-2 border-white/20 z-10"
+            className="absolute bottom-32 right-4 w-28 h-40 object-cover rounded-2xl border-2 border-white/20 z-10 pointer-events-none"
             style={{ display: !videoOff ? "block" : "none" }}
           />
         </>
@@ -333,7 +354,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
       {isVideo && <div className="h-10" />}
 
       {/* Controls */}
-      <div className="w-full">
+      <div className="w-full relative z-20">
         {state === "ringing" ? (
           <div className="flex items-center justify-center gap-12">
             <div className="flex flex-col items-center gap-2">

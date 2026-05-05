@@ -38,11 +38,11 @@ const FEATURES: Feature[] = [
   },
   {
     id: "bots",
-    title: "Bot API и мини-приложения",
-    desc: "Боты на webhook'ах, inline-кнопки, мини-приложения внутри чата как у Telegram.",
+    title: "Bot API",
+    desc: "Уже работает! Создавай ботов в Профиле → Мои боты. Получи токен, подключи webhook или long-polling, и бот начнёт отвечать в чатах.",
     icon: "Bot",
     color: "from-violet-500 to-purple-600",
-    status: "soon",
+    status: "beta",
   },
 ];
 
