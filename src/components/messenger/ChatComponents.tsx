@@ -86,6 +86,8 @@ export function ChatWindow({
   const [isTyping, setIsTyping] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSec, setRecordSec] = useState(0);
+  const recordSecRef = useRef(0);
+  useEffect(() => { recordSecRef.current = recordSec; }, [recordSec]);
   const [showVideoCircle, setShowVideoCircle] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showScheduledList, setShowScheduledList] = useState(false);
@@ -299,19 +301,21 @@ export function ChatWindow({
   };
   const cancelHold = () => { if (holdTimer.current) clearTimeout(holdTimer.current); };
 
-  const sendFile = async (file: File) => {
+  const sendFile = async (file: File, extra?: { duration?: number; mediaTypeOverride?: "audio" | "video" | "image" | "file" }) => {
     setUploading(true);
     setShowAttach(false);
     const labelMap: Record<string, string> = { image: "Загружаем фото...", video: "Загружаем видео...", audio: "Загружаем аудио...", file: "Загружаем файл..." };
     try {
       const result = await uploadMedia(file, currentUser.id);
-      setUploadLabel(labelMap[result.media_type] || "Загружаем...");
+      const finalMediaType = extra?.mediaTypeOverride || result.media_type;
+      setUploadLabel(labelMap[finalMediaType] || "Загружаем...");
       const data = await api("send_message", {
         chat_id: chat.id,
-        media_type: result.media_type,
+        media_type: finalMediaType,
         media_url: result.url,
         file_name: result.file_name,
         file_size: result.file_size,
+        duration: extra?.duration,
       }, currentUser.id);
       if (data.id) {
         const timeStr = new Date(data.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
@@ -321,11 +325,12 @@ export function ChatWindow({
           time: timeStr,
           out: true,
           created_at: data.created_at,
-          media_type: result.media_type,
+          media_type: finalMediaType,
           media_url: result.url,
-          image_url: result.media_type === "image" ? result.url : undefined,
+          image_url: finalMediaType === "image" ? result.url : undefined,
           file_name: result.file_name,
           file_size: result.file_size,
+          duration: extra?.duration,
           reactions: [],
         }]);
         setLastSince(data.created_at);
@@ -335,31 +340,69 @@ export function ChatWindow({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      // Подбираем поддерживаемый формат (Safari/iOS не любит webm)
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+        "",
+      ];
+      let mime = "";
+      for (const c of candidates) {
+        if (!c) { mime = ""; break; }
+        if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) {
+          mime = c; break;
+        }
+      }
+      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       mediaRecorder.current = mr;
       audioChunks.current = [];
-      mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
+      mr.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunks.current, { type: "audio/webm" });
-        const file = new File([blob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
-        await sendFile(file);
+        const realType = mr.mimeType || mime || "audio/webm";
+        const ext = realType.includes("mp4") ? "m4a" : realType.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(audioChunks.current, { type: realType });
+        if (blob.size < 500) return; // совсем пустая запись — отменили
+        const dur = recordSecRef.current;
+        const file = new File([blob], `voice_${Date.now()}.${ext}`, { type: realType });
+        await sendFile(file, { duration: dur, mediaTypeOverride: "audio" });
       };
-      mr.start();
+      mr.start(100); // ловим chunks каждые 100мс
       setRecording(true);
       setRecordSec(0);
-      recordTimer.current = setInterval(() => setRecordSec(s => s + 1), 1000);
-    } catch {
-      alert("Нет доступа к микрофону");
+      if (recordTimer.current) clearInterval(recordTimer.current);
+      recordTimer.current = setInterval(() => setRecordSec(s => {
+        if (s + 1 >= 300) { // макс 5 минут
+          if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
+            try { mediaRecorder.current.stop(); } catch { /* ignore */ }
+          }
+          if (recordTimer.current) clearInterval(recordTimer.current);
+          setRecording(false);
+          return 300;
+        }
+        return s + 1;
+      }), 1000);
+    } catch (e) {
+      const name = (e as DOMException).name;
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        alert("Доступ к микрофону запрещён. Разреши его в настройках браузера.");
+      } else {
+        alert("Не удалось включить запись: " + (e as Error).message);
+      }
     }
   };
 
   const stopRecording = () => {
+    if (recordTimer.current) { clearInterval(recordTimer.current); recordTimer.current = null; }
     if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
-      mediaRecorder.current.stop();
+      try { mediaRecorder.current.stop(); } catch { /* ignore */ }
     }
-    if (recordTimer.current) clearInterval(recordTimer.current);
     setRecording(false);
   };
 
@@ -586,7 +629,7 @@ export function ChatWindow({
       <div
         ref={messagesScrollRef}
         onScroll={handleMessagesScroll}
-        className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5 relative"
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-1 relative"
         style={wallpaperById(wallpaper) ? { background: wallpaperById(wallpaper) } : undefined}
         onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}
       >
@@ -679,10 +722,10 @@ export function ChatWindow({
                   style={{ animationDelay: `${Math.min(i, 10) * 0.03}s` }}
                 >
                   <div
-                    className={`relative max-w-[72%] w-fit min-w-[60px] rounded-2xl text-sm leading-relaxed overflow-hidden select-none transition-shadow ${
+                    className={`relative max-w-[78%] w-fit min-w-[44px] rounded-[18px] text-[14px] leading-snug overflow-hidden select-none transition-shadow ${
                       msg.out
-                        ? "msg-bubble-out text-white rounded-tr-sm"
-                        : "msg-bubble-in text-foreground rounded-tl-sm"
+                        ? "msg-bubble-out text-white rounded-tr-md"
+                        : "msg-bubble-in text-foreground rounded-tl-md"
                     } ${highlightId === msg.id ? "ring-2 ring-violet-400" : ""}`}
                     onMouseDown={() => startHold(msg.id, msg.out)}
                     onMouseUp={cancelHold}
@@ -726,16 +769,16 @@ export function ChatWindow({
                       </div>
                     )}
                     {(msg.media_url || msg.image_url) && (
-                      <div className="p-1.5">
+                      <div className="p-1">
                         <MediaMessage msg={msg} gallery={mediaGallery} galleryIndex={galleryIndex} out={msg.out} />
                       </div>
                     )}
                     {showText && (
-                      <p className="px-3 pt-2 pb-1.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      <p className="px-2.5 pt-1.5 pb-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         <LinkifiedText text={msg.text} out={msg.out} />
                         <span
                           className="inline-block h-[1px] align-baseline"
-                          style={{ width: (msg.edited_at ? 64 : 40) + (msg.out ? 14 : 0) }}
+                          style={{ width: (msg.edited_at ? 60 : 38) + (msg.out ? 14 : 0) }}
                           aria-hidden
                         />
                       </p>
@@ -915,7 +958,7 @@ export function ChatWindow({
       <VideoCircleRecorder
         open={showVideoCircle}
         onClose={() => setShowVideoCircle(false)}
-        onRecorded={(file) => sendFile(file)}
+        onRecorded={(file, duration) => sendFile(file, { duration, mediaTypeOverride: "video" })}
       />
 
       <ScheduleModal

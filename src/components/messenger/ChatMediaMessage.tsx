@@ -46,7 +46,7 @@ export function MediaMessage({ msg, gallery = [], galleryIndex = 0, out = false 
         <img
           src={mediaUrl}
           alt="фото"
-          className="w-full max-w-[260px] rounded-xl object-cover cursor-pointer"
+          className="w-full max-w-[280px] max-h-[360px] rounded-2xl object-cover cursor-pointer hover:opacity-95 transition"
           onError={() => setImgError(true)}
           onClick={(e) => { e.stopPropagation(); setViewerOpen(true); }}
           onMouseDown={(e) => e.stopPropagation()}

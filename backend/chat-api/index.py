@@ -1906,6 +1906,106 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True})
 
+    # ── join_by_invite ────────────────────────────────────────────────────────
+    if action == "join_by_invite":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        invite = (body.get("invite_link") or body.get("invite") or "").strip()
+        if not invite:
+            conn.close(); return err("Укажите invite_link")
+        # принимаем как полный URL, так и просто код
+        code = invite.rsplit("/", 1)[-1].strip()
+        cur.execute(
+            f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE invite_link=%s OR invite_link LIKE %s",
+            (code, f"%{code}")
+        )
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Приглашение не найдено", 404)
+        gid = int(rr[0])
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.group_members (group_id, user_id, role, joined_at)
+                VALUES (%s, %s, 'member', %s)
+                ON CONFLICT (group_id, user_id) DO UPDATE SET role = CASE
+                    WHEN {SCHEMA}.group_members.role='removed' THEN 'member'
+                    ELSE {SCHEMA}.group_members.role END""",
+            (gid, int(user_id), now)
+        )
+        conn.close()
+        return ok({"ok": True, "group_id": gid, "name": rr[1], "is_channel": bool(rr[2])})
+
+    # ── leave_group ───────────────────────────────────────────────────────────
+    if action == "leave_group":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        if gid <= 0:
+            conn.close(); return err("Укажите group_id")
+        cur.execute(f"SELECT owner_id FROM {SCHEMA}.groups WHERE id=%s", (gid,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Группа не найдена", 404)
+        if int(rr[0]) == int(user_id):
+            conn.close(); return err("Владелец не может выйти. Удалите группу или передайте права.", 400)
+        cur.execute(
+            f"UPDATE {SCHEMA}.group_members SET role='removed' WHERE group_id=%s AND user_id=%s",
+            (gid, int(user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── delete_group ──────────────────────────────────────────────────────────
+    if action == "delete_group":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        cur.execute(f"SELECT owner_id FROM {SCHEMA}.groups WHERE id=%s", (gid,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Группа не найдена", 404)
+        if int(rr[0]) != int(user_id):
+            conn.close(); return err("Только владелец может удалить", 403)
+        # Удаляем сообщения, участников, саму группу
+        try:
+            cur.execute(f"DELETE FROM {SCHEMA}.group_messages WHERE group_id=%s", (gid,))
+        except Exception:
+            conn.rollback(); cur = conn.cursor()
+        try:
+            cur.execute(f"DELETE FROM {SCHEMA}.group_members WHERE group_id=%s", (gid,))
+        except Exception:
+            conn.rollback(); cur = conn.cursor()
+        cur.execute(f"DELETE FROM {SCHEMA}.groups WHERE id=%s", (gid,))
+        conn.close()
+        return ok({"ok": True})
+
+    # ── search_channels — публичный поиск ─────────────────────────────────────
+    if action == "search_channels":
+        q = (body.get("q") or "").strip()
+        if not q or len(q) < 2:
+            conn.close(); return ok({"items": []})
+        cur.execute(
+            f"""SELECT g.id, g.name, g.description, g.avatar_url, g.is_channel,
+                       (SELECT COUNT(*) FROM {SCHEMA}.group_members gm WHERE gm.group_id=g.id AND gm.role!='removed') AS members
+                FROM {SCHEMA}.groups g
+                WHERE g.invite_link IS NOT NULL AND g.invite_link != ''
+                  AND (g.name ILIKE %s OR g.description ILIKE %s)
+                ORDER BY members DESC LIMIT 30""",
+            (f"%{q}%", f"%{q}%")
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"items": [{
+            "id": r[0], "name": r[1], "description": r[2], "avatar_url": r[3],
+            "is_channel": bool(r[4]), "members_count": int(r[5] or 0),
+        } for r in rows]})
+
     # ── set_member_role ───────────────────────────────────────────────────────
     if action == "set_member_role":
         if not user_id:

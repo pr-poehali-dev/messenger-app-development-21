@@ -11,6 +11,7 @@ import InstallPrompt from "@/components/messenger/InstallPrompt";
 import ComingSoon from "@/components/messenger/ComingSoon";
 import { ChatFolders, filterChatsByFolder, useChatFolder } from "@/components/messenger/ChatFolders";
 import GroupCreateModal from "@/components/messenger/GroupCreateModal";
+import JoinChannelModal from "@/components/messenger/JoinChannelModal";
 import { GroupChatWindow } from "@/components/messenger/GroupChatWindow";
 import WalletPanel from "@/components/messenger/WalletPanel";
 import ProPanel from "@/components/messenger/ProPanel";
@@ -103,6 +104,7 @@ export default function Index() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showJoinChannel, setShowJoinChannel] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
   const [showProSettings, setShowProSettings] = useState(false);
   const [showLightning, setShowLightning] = useState(false);
@@ -586,8 +588,8 @@ export default function Index() {
                 </div>
               )}
 
-              {/* Кнопка создать группу/канал */}
-              <div className="px-4 pt-2 pb-2">
+              {/* Кнопки группы/каналы */}
+              <div className="px-4 pt-2 pb-2 space-y-1.5">
                 <button
                   onClick={() => setShowCreateGroup(true)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition text-muted-foreground hover:text-foreground border border-dashed border-white/10"
@@ -596,6 +598,15 @@ export default function Index() {
                     <Icon name="Plus" size={20} className="text-violet-400" />
                   </div>
                   <span className="text-sm font-medium">Создать группу или канал</span>
+                </button>
+                <button
+                  onClick={() => setShowJoinChannel(true)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition text-muted-foreground hover:text-foreground border border-dashed border-white/10"
+                >
+                  <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center flex-shrink-0">
+                    <Icon name="Search" size={20} className="text-cyan-400" />
+                  </div>
+                  <span className="text-sm font-medium">Найти канал по ссылке</span>
                 </button>
               </div>
             </>
@@ -731,6 +742,24 @@ export default function Index() {
           onClose={() => setShowCreateGroup(false)}
           onCreated={(g) => {
             setGroups(prev => [g, ...prev]);
+            setSelectedGroup(g);
+            setSelectedChat(null);
+            setShowSidebar(false);
+          }}
+        />
+      )}
+
+      {/* JoinChannelModal */}
+      {currentUser && (
+        <JoinChannelModal
+          open={showJoinChannel}
+          currentUser={currentUser}
+          onClose={() => setShowJoinChannel(false)}
+          onJoined={(g) => {
+            // обновляем список групп
+            api("get_groups", {}, currentUser.id).then(d => {
+              if (d?.groups) setGroups(d.groups);
+            });
             setSelectedGroup(g);
             setSelectedChat(null);
             setShowSidebar(false);
