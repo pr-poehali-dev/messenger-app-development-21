@@ -371,6 +371,139 @@ def handler(event: dict, context) -> dict:
 
         return ok({"ok": True, "msg_id": msg_id, "chat_id": chat_id})
 
+    # ── support: список тикетов ────────────────────────────────────────────────
+    if action == "support_list_tickets":
+        status_filter = (body.get("status") or "all").strip()
+        where = ""
+        params: list = []
+        if status_filter in ("open", "closed"):
+            where = "WHERE t.status=%s"
+            params.append(status_filter)
+        cur.execute(
+            f"""SELECT t.id, t.user_id, u.name, u.phone, u.avatar_url,
+                       t.subject, t.status, t.created_at, t.last_message_at, t.unread_for_admin,
+                       (SELECT text FROM {SCHEMA}.support_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_text
+                FROM {SCHEMA}.support_tickets t
+                LEFT JOIN {SCHEMA}.users u ON u.id=t.user_id
+                {where}
+                ORDER BY t.unread_for_admin DESC, t.last_message_at DESC LIMIT 200""",
+            tuple(params)
+        )
+        rows = cur.fetchall()
+        # счётчик непрочитанных
+        cur.execute(f"SELECT COALESCE(SUM(unread_for_admin),0) FROM {SCHEMA}.support_tickets")
+        total_unread = int(cur.fetchone()[0] or 0)
+        conn.close()
+        return ok({
+            "tickets": [{
+                "id": r[0], "user_id": r[1], "user_name": r[2], "user_phone": r[3], "user_avatar": r[4],
+                "subject": r[5], "status": r[6],
+                "created_at": int(r[7]), "last_message_at": int(r[8]),
+                "unread": int(r[9] or 0),
+                "last_text": (r[10] or "")[:140],
+            } for r in rows],
+            "total_unread": total_unread,
+        })
+
+    if action == "support_admin_messages":
+        ticket_id = body.get("ticket_id")
+        if not ticket_id:
+            conn.close(); return err("Нужен ticket_id")
+        try:
+            tid = int(ticket_id)
+        except Exception:
+            conn.close(); return err("Неверный ticket_id")
+        cur.execute(
+            f"""SELECT t.id, t.user_id, u.name, u.phone, u.avatar_url,
+                       t.subject, t.status, t.created_at, t.last_message_at
+                FROM {SCHEMA}.support_tickets t
+                LEFT JOIN {SCHEMA}.users u ON u.id=t.user_id
+                WHERE t.id=%s""",
+            (tid,)
+        )
+        tt = cur.fetchone()
+        if not tt:
+            conn.close(); return err("Тикет не найден", 404)
+        cur.execute(
+            f"""SELECT id, sender_id, is_admin, text, created_at
+                FROM {SCHEMA}.support_messages
+                WHERE ticket_id=%s ORDER BY created_at ASC LIMIT 500""",
+            (tid,)
+        )
+        rows = cur.fetchall()
+        # сбрасываем unread_for_admin
+        cur.execute(f"UPDATE {SCHEMA}.support_tickets SET unread_for_admin=0 WHERE id=%s", (tid,))
+        conn.close()
+        return ok({
+            "ticket": {
+                "id": tt[0], "user_id": tt[1], "user_name": tt[2], "user_phone": tt[3], "user_avatar": tt[4],
+                "subject": tt[5], "status": tt[6],
+                "created_at": int(tt[7]), "last_message_at": int(tt[8]),
+            },
+            "messages": [{
+                "id": r[0], "sender_id": r[1], "is_admin": bool(r[2]),
+                "text": r[3], "created_at": int(r[4]),
+            } for r in rows],
+        })
+
+    if action == "support_admin_reply":
+        ticket_id = body.get("ticket_id")
+        text = (body.get("text") or "").strip()[:4000]
+        if not ticket_id or not text:
+            conn.close(); return err("Нужен ticket_id и text")
+        try:
+            tid = int(ticket_id)
+        except Exception:
+            conn.close(); return err("Неверный ticket_id")
+        cur.execute(f"SELECT user_id FROM {SCHEMA}.support_tickets WHERE id=%s", (tid,))
+        rr = cur.fetchone()
+        if not rr:
+            conn.close(); return err("Тикет не найден", 404)
+        target_uid = int(rr[0])
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.support_messages (ticket_id, sender_id, is_admin, text, created_at)
+                VALUES (%s, NULL, TRUE, %s, %s) RETURNING id""",
+            (tid, text, now)
+        )
+        mid = int(cur.fetchone()[0])
+        cur.execute(
+            f"UPDATE {SCHEMA}.support_tickets SET last_message_at=%s, unread_for_user=unread_for_user+1 WHERE id=%s",
+            (now, tid)
+        )
+        conn.close()
+        # Push юзеру
+        push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+        if push_url:
+            try:
+                push_body = json.dumps({
+                    "action": "send",
+                    "recipient_id": target_uid,
+                    "sender_name": "Поддержка Nova",
+                    "message": "Ответ от поддержки: " + text[:100],
+                }).encode("utf-8")
+                req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+        return ok({"id": mid, "created_at": now})
+
+    if action == "support_admin_close":
+        ticket_id = body.get("ticket_id")
+        if not ticket_id:
+            conn.close(); return err("Нужен ticket_id")
+        try:
+            tid = int(ticket_id)
+        except Exception:
+            conn.close(); return err("Неверный ticket_id")
+        now = int(time.time())
+        cur.execute(
+            f"UPDATE {SCHEMA}.support_tickets SET status='closed', closed_at=%s WHERE id=%s",
+            (now, tid)
+        )
+        conn.close()
+        return ok({"ok": True})
+
     # ── clear_test_data — обезличить всех пользователей (имя, аватар, телефон) ──
     if action == "clear_test_data":
         cur.execute(

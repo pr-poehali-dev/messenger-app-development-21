@@ -290,10 +290,23 @@ export function ChatWindow({
     }
   };
 
-  const deleteMessage = async (msgId: number) => {
+  const deleteMessage = (msgId: number) => {
     setCtxMenu(null);
-    await api("delete_message", { message_id: msgId }, currentUser.id);
-    setMessages(prev => prev.filter(m => m.id !== msgId));
+    setConfirm({
+      title: "Удалить сообщение?",
+      text: "Сообщение исчезнет у всех участников чата.",
+      danger: true,
+      action: async () => {
+        // Оптимистично убираем
+        setMessages(prev => prev.filter(m => m.id !== msgId));
+        const r = await api("delete_message", { message_id: msgId }, currentUser.id);
+        if (r?.error) {
+          alert("Не удалось удалить: " + r.error);
+          // Откат: перезагрузим
+          setLastSince(0);
+        }
+      },
+    });
   };
 
   const startHold = (msgId: number, out: boolean) => {

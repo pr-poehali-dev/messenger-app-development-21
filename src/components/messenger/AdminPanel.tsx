@@ -32,6 +32,27 @@ interface Stats {
   load: { level: string; tip: string; msg_per_min: number };
 }
 
+interface SupportTicket {
+  id: number;
+  user_id: number;
+  user_name: string;
+  user_phone: string;
+  user_avatar?: string | null;
+  subject: string;
+  status: "open" | "closed";
+  created_at: number;
+  last_message_at: number;
+  unread: number;
+  last_text: string;
+}
+interface SupportMsg {
+  id: number;
+  sender_id: number | null;
+  is_admin: boolean;
+  text: string;
+  created_at: number;
+}
+
 interface AdminUser {
   id: number; phone: string; name: string; last_seen: number; created_at: number;
   online: boolean; avatar_url?: string | null;
@@ -70,7 +91,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [authed, setAuthed] = useState(false);
   const [authInput, setAuthInput] = useState("");
   const [authError, setAuthError] = useState("");
-  const [tab, setTab] = useState<"stats" | "users">("stats");
+  const [tab, setTab] = useState<"stats" | "users" | "support">("stats");
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const [activeTicket, setActiveTicket] = useState<SupportTicket | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<SupportMsg[]>([]);
+  const [ticketReply, setTicketReply] = useState("");
+  const [ticketSending, setTicketSending] = useState(false);
+  const [ticketStatusFilter, setTicketStatusFilter] = useState<"all" | "open" | "closed">("open");
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
@@ -134,6 +162,21 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     setLoading(false);
   }, [token]);
 
+  const loadTickets = useCallback(async (status: "all" | "open" | "closed" = "open") => {
+    const data = await adminApi("support_list_tickets", { status }, token);
+    if (Array.isArray(data?.tickets)) {
+      setTickets(data.tickets);
+      setSupportUnread(data.total_unread || 0);
+    }
+  }, [token]);
+
+  const loadTicketMessages = useCallback(async (ticketId: number) => {
+    const data = await adminApi("support_admin_messages", { ticket_id: ticketId }, token);
+    if (data?.messages) setTicketMessages(data.messages);
+    if (data?.ticket) setActiveTicket(data.ticket);
+    loadTickets(ticketStatusFilter);
+  }, [token, ticketStatusFilter, loadTickets]);
+
   useEffect(() => {
     if (token) {
       adminApi("stats", {}, token).then(d => {
@@ -142,10 +185,26 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     }
   }, [token]);
 
+  // Периодически обновляем счётчик непрочитанных тикетов
+  useEffect(() => {
+    if (!authed) return;
+    loadTickets(ticketStatusFilter);
+    const t = setInterval(() => loadTickets(ticketStatusFilter), 15000);
+    return () => clearInterval(t);
+  }, [authed, ticketStatusFilter, loadTickets]);
+
+  // Активный тикет — авто-poll
+  useEffect(() => {
+    if (!authed || !activeTicket) return;
+    const t = setInterval(() => loadTicketMessages(activeTicket.id), 6000);
+    return () => clearInterval(t);
+  }, [authed, activeTicket, loadTicketMessages]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === "stats") loadStats();
     if (tab === "users") loadUsers(search);
+    if (tab === "support") loadTickets(ticketStatusFilter);
   }, [tab, authed]);
 
   const openUser = async (u: AdminUser) => {
@@ -296,11 +355,16 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex mx-4 mt-3 mb-3 glass rounded-2xl p-1">
-        {(["stats", "users"] as const).map(t => (
+      <div className="flex mx-4 mt-3 mb-3 glass rounded-2xl p-1 gap-1">
+        {(["stats", "users", "support"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${tab === t ? "grad-primary text-white shadow-lg" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "stats" ? "📊 Нагрузка" : "👥 Пользователи"}
+            className={`relative flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${tab === t ? "grad-primary text-white shadow-lg" : "text-muted-foreground hover:text-foreground"}`}>
+            {t === "stats" ? "📊 Нагрузка" : t === "users" ? "👥 Юзеры" : "🛟 Тикеты"}
+            {t === "support" && supportUnread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {supportUnread > 99 ? "99+" : supportUnread}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -572,7 +636,136 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         )}
+
+        {/* ── SUPPORT TICKETS ── */}
+        {tab === "support" && (
+          <div className="space-y-2 animate-fade-in">
+            <div className="flex gap-1 glass rounded-xl p-1">
+              {(["open", "all", "closed"] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => { setTicketStatusFilter(s); loadTickets(s); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${ticketStatusFilter === s ? "bg-violet-500/30 text-violet-200" : "text-muted-foreground"}`}
+                >
+                  {s === "open" ? "Открытые" : s === "all" ? "Все" : "Закрытые"}
+                </button>
+              ))}
+            </div>
+            {tickets.length === 0 ? (
+              <p className="text-center text-sm text-muted-foreground py-12">Тикетов нет</p>
+            ) : tickets.map(t => (
+              <button
+                key={t.id}
+                onClick={() => { setActiveTicket(t); loadTicketMessages(t.id); }}
+                className="w-full glass rounded-2xl p-3 flex items-start gap-3 hover:bg-white/8 transition text-left"
+              >
+                <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
+                  {t.user_avatar ? <img src={t.user_avatar} alt={t.user_name} className="w-full h-full object-cover" /> : (t.user_name || "?")[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm truncate flex-1">{t.user_name || `User #${t.user_id}`}</span>
+                    {t.unread > 0 && (
+                      <span className="px-1.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{t.unread}</span>
+                    )}
+                    {t.status === "closed" && <span className="text-[10px] bg-zinc-500/20 text-zinc-300 px-2 py-0.5 rounded-full">закрыт</span>}
+                  </div>
+                  <p className="text-[11px] text-violet-400 font-medium truncate">{t.subject}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{t.last_text}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{fmtTime(t.last_message_at)}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Active ticket modal */}
+      {activeTicket && (
+        <div className="fixed inset-0 z-[230] bg-black/60 backdrop-blur flex items-end" onClick={() => { setActiveTicket(null); setTicketMessages([]); }}>
+          <div className="w-full max-w-lg mx-auto glass-strong rounded-t-3xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 p-4 border-b border-white/5">
+              <button onClick={() => { setActiveTicket(null); setTicketMessages([]); }} className="p-2 rounded-xl hover:bg-white/8">
+                <Icon name="X" size={18} />
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm truncate">{activeTicket.user_name || `User #${activeTicket.user_id}`}</div>
+                <div className="text-[11px] text-muted-foreground truncate">{activeTicket.subject} · {activeTicket.user_phone}</div>
+              </div>
+              {activeTicket.status === "open" && (
+                <button
+                  onClick={async () => {
+                    await adminApi("support_admin_close", { ticket_id: activeTicket.id }, token);
+                    setActiveTicket({ ...activeTicket, status: "closed" });
+                    loadTickets(ticketStatusFilter);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
+                >
+                  Закрыть
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {ticketMessages.map(m => (
+                <div key={m.id} className={`flex ${m.is_admin ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${m.is_admin ? "grad-primary text-white rounded-tr-md" : "bg-white/5 text-foreground rounded-tl-md"}`}>
+                    {!m.is_admin && <div className="text-[10px] font-bold text-muted-foreground mb-0.5">{activeTicket.user_name}</div>}
+                    {m.is_admin && <div className="text-[10px] font-bold text-white/70 mb-0.5">Поддержка (вы)</div>}
+                    <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                    <div className={`text-[10px] mt-1 ${m.is_admin ? "text-white/70" : "text-muted-foreground"}`}>
+                      {new Date(m.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {activeTicket.status === "open" ? (
+              <div className="p-3 flex items-center gap-2 border-t border-white/5">
+                <input
+                  value={ticketReply}
+                  onChange={e => setTicketReply(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!ticketReply.trim() || ticketSending) return;
+                    const text = ticketReply.trim();
+                    setTicketReply("");
+                    setTicketSending(true);
+                    adminApi("support_admin_reply", { ticket_id: activeTicket.id, text }, token).then(() => {
+                      setTicketSending(false);
+                      loadTicketMessages(activeTicket.id);
+                    });
+                  } }}
+                  placeholder="Ответ пользователю..."
+                  className="flex-1 glass rounded-xl px-3 py-2 text-sm outline-none"
+                />
+                <button
+                  onClick={async () => {
+                    if (!ticketReply.trim() || ticketSending) return;
+                    const text = ticketReply.trim();
+                    setTicketReply("");
+                    setTicketSending(true);
+                    await adminApi("support_admin_reply", { ticket_id: activeTicket.id, text }, token);
+                    setTicketSending(false);
+                    loadTicketMessages(activeTicket.id);
+                  }}
+                  disabled={!ticketReply.trim() || ticketSending}
+                  className="w-10 h-10 grad-primary rounded-xl text-white flex items-center justify-center disabled:opacity-50"
+                >
+                  {ticketSending
+                    ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <Icon name="Send" size={14} />}
+                </button>
+              </div>
+            ) : (
+              <div className="p-3 text-center text-xs text-muted-foreground border-t border-white/5">
+                Тикет закрыт
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* User detail modal */}
       {selectedUser && (

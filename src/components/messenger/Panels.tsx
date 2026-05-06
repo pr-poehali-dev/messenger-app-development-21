@@ -127,7 +127,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots, onOpenSupport }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void; onOpenSupport?: () => void }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -527,6 +527,26 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
             <div className="flex-1 text-left min-w-0">
               <div className="text-sm font-bold truncate">Мои боты</div>
               <div className="text-[11px] text-muted-foreground truncate">Создавай ботов для автоматизации</div>
+            </div>
+            <Icon name="ChevronRight" size={16} className="text-muted-foreground flex-shrink-0" />
+          </button>
+        </div>
+      )}
+
+      {/* Поддержка */}
+      {onOpenSupport && (
+        <div className="px-4 mb-3">
+          <button
+            onClick={onOpenSupport}
+            className="w-full glass rounded-2xl p-3 flex items-center gap-3 hover:bg-white/8 transition"
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}>
+              <Icon name="LifeBuoy" size={18} className="text-white" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm font-bold truncate">Поддержка Nova</div>
+              <div className="text-[11px] text-muted-foreground truncate">Помощь, баги, идеи</div>
             </div>
             <Icon name="ChevronRight" size={16} className="text-muted-foreground flex-shrink-0" />
           </button>

@@ -646,6 +646,109 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"wallpaper": (rr[0] if rr else None)})
 
+    # ── support tickets (user side) ───────────────────────────────────────────
+    if action == "support_create_ticket":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        subject = (body.get("subject") or "").strip()[:200] or "Без темы"
+        text = (body.get("text") or "").strip()[:4000]
+        if not text:
+            conn.close(); return err("Нужен текст сообщения")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.support_tickets
+                (user_id, subject, status, created_at, last_message_at, unread_for_admin)
+                VALUES (%s, %s, 'open', %s, %s, 1) RETURNING id""",
+            (int(user_id), subject, now, now)
+        )
+        tid = int(cur.fetchone()[0])
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.support_messages (ticket_id, sender_id, is_admin, text, created_at)
+                VALUES (%s, %s, FALSE, %s, %s)""",
+            (tid, int(user_id), text, now)
+        )
+        conn.close()
+        return ok({"ticket_id": tid})
+
+    if action == "support_my_tickets":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT t.id, t.subject, t.status, t.created_at, t.last_message_at, t.unread_for_user,
+                       (SELECT text FROM {SCHEMA}.support_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_text
+                FROM {SCHEMA}.support_tickets t
+                WHERE t.user_id=%s
+                ORDER BY t.last_message_at DESC LIMIT 100""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"tickets": [{
+            "id": r[0], "subject": r[1], "status": r[2],
+            "created_at": int(r[3]), "last_message_at": int(r[4]),
+            "unread": int(r[5] or 0),
+            "last_text": (r[6] or "")[:120],
+        } for r in rows]})
+
+    if action == "support_ticket_messages":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            tid = int(body.get("ticket_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный ticket_id")
+        cur.execute(f"SELECT user_id FROM {SCHEMA}.support_tickets WHERE id=%s", (tid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        cur.execute(
+            f"""SELECT id, sender_id, is_admin, text, created_at
+                FROM {SCHEMA}.support_messages
+                WHERE ticket_id=%s ORDER BY created_at ASC LIMIT 500""",
+            (tid,)
+        )
+        rows = cur.fetchall()
+        # Сбрасываем unread для юзера
+        cur.execute(
+            f"UPDATE {SCHEMA}.support_tickets SET unread_for_user=0 WHERE id=%s",
+            (tid,)
+        )
+        conn.close()
+        return ok({"messages": [{
+            "id": r[0], "sender_id": r[1], "is_admin": bool(r[2]),
+            "text": r[3], "created_at": int(r[4]),
+        } for r in rows]})
+
+    if action == "support_send_message":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            tid = int(body.get("ticket_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный ticket_id")
+        text = (body.get("text") or "").strip()[:4000]
+        if not text:
+            conn.close(); return err("Нужен текст")
+        cur.execute(f"SELECT user_id, status FROM {SCHEMA}.support_tickets WHERE id=%s", (tid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Нет доступа", 403)
+        if rr[1] == "closed":
+            conn.close(); return err("Тикет закрыт. Создайте новый.")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.support_messages (ticket_id, sender_id, is_admin, text, created_at)
+                VALUES (%s, %s, FALSE, %s, %s) RETURNING id""",
+            (tid, int(user_id), text, now)
+        )
+        mid = int(cur.fetchone()[0])
+        cur.execute(
+            f"UPDATE {SCHEMA}.support_tickets SET last_message_at=%s, unread_for_admin=unread_for_admin+1, status='open' WHERE id=%s",
+            (now, tid)
+        )
+        conn.close()
+        return ok({"id": mid, "created_at": now})
+
     # ── send_message ──────────────────────────────────────────────────────────
     if action == "send_message":
         if not user_id:

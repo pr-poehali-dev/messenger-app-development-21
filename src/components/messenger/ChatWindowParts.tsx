@@ -207,10 +207,10 @@ export function ContextMenu({
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
-      <div className="glass-strong rounded-2xl overflow-hidden shadow-xl min-w-[220px] max-w-[320px] animate-scale-in" onClick={e => e.stopPropagation()}>
+      <div className="glass-strong rounded-2xl overflow-hidden shadow-2xl min-w-[240px] max-w-[340px] max-h-[85vh] overflow-y-auto animate-scale-in" onClick={e => e.stopPropagation()}>
         {showFullPicker ? (
           <div className="p-3 border-b border-white/5">
             <div className="flex items-center justify-between mb-2">

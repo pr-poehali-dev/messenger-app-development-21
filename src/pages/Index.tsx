@@ -23,6 +23,7 @@ import { AdminStickersPanel } from "@/components/messenger/AdminStickersPanel";
 import BotsPanel from "@/components/messenger/BotsPanel";
 import { RealStoriesBar, RealStoryViewer, type StoryGroup } from "@/components/messenger/RealStories";
 import ProgressPanel from "@/components/messenger/ProgressPanel";
+import SupportPanel from "@/components/messenger/SupportPanel";
 import { type Contact } from "@/lib/api";
 
 interface ChatRaw {
@@ -113,6 +114,29 @@ export default function Index() {
   const [showProgress, setShowProgress] = useState(false);
   const [showBots, setShowBots] = useState(false);
   const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
+  const [showSupport, setShowSupport] = useState(false);
+
+  // Универсальная функция открытия одной панели — закрывает все остальные
+  const closeAllOverlays = () => {
+    setShowAdmin(false);
+    setShowPro(false);
+    setShowComingSoon(false);
+    setShowCreateGroup(false);
+    setShowJoinChannel(false);
+    setShowWallet(false);
+    setShowProSettings(false);
+    setShowLightning(false);
+    setShowStickers(false);
+    setShowAdminStickers(false);
+    setShowProgress(false);
+    setShowBots(false);
+    setShowSupport(false);
+    setFundraiserView(null);
+  };
+  const openOverlay = (setter: (v: boolean) => void) => {
+    closeAllOverlays();
+    setter(true);
+  };
 
   // Push-подписка
   useEffect(() => {
@@ -352,7 +376,7 @@ export default function Index() {
           currentUser={currentUser}
           onClose={() => setShowStickers(false)}
           onUserUpdate={(u) => setCurrentUser(u)}
-          onOpenAdmin={() => setShowAdminStickers(true)}
+          onOpenAdmin={() => { setShowStickers(false); setShowAdminStickers(true); }}
         />
       )}
 
@@ -369,6 +393,14 @@ export default function Index() {
         <ProgressPanel
           currentUser={currentUser}
           onClose={() => setShowProgress(false)}
+        />
+      )}
+
+      {/* Поддержка */}
+      {showSupport && currentUser && (
+        <SupportPanel
+          currentUser={currentUser}
+          onClose={() => setShowSupport(false)}
         />
       )}
 
@@ -451,7 +483,7 @@ export default function Index() {
           <div className="flex items-center gap-1">
             {/* Nova Pro badge */}
             <button
-              onClick={() => setShowPro(true)}
+              onClick={() => openOverlay(setShowPro)}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", color: "#fff" }}
             >
@@ -460,7 +492,7 @@ export default function Index() {
             </button>
             {/* Скоро */}
             <button
-              onClick={() => setShowComingSoon(true)}
+              onClick={() => openOverlay(setShowComingSoon)}
               className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-violet-400"
               title="Скоро в Nova"
             >
@@ -468,7 +500,7 @@ export default function Index() {
             </button>
             {/* Dev Panel */}
             <button
-              onClick={() => setShowAdmin(true)}
+              onClick={() => openOverlay(setShowAdmin)}
               className="p-2 rounded-xl hover:bg-white/8 transition-colors text-muted-foreground hover:text-violet-400"
               title="Dev Panel"
             >
@@ -591,7 +623,7 @@ export default function Index() {
               {/* Кнопки группы/каналы */}
               <div className="px-4 pt-2 pb-2 space-y-1.5">
                 <button
-                  onClick={() => setShowCreateGroup(true)}
+                  onClick={() => openOverlay(setShowCreateGroup)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition text-muted-foreground hover:text-foreground border border-dashed border-white/10"
                 >
                   <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center flex-shrink-0">
@@ -600,7 +632,7 @@ export default function Index() {
                   <span className="text-sm font-medium">Создать группу или канал</span>
                 </button>
                 <button
-                  onClick={() => setShowJoinChannel(true)}
+                  onClick={() => openOverlay(setShowJoinChannel)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition text-muted-foreground hover:text-foreground border border-dashed border-white/10"
                 >
                   <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center flex-shrink-0">
@@ -696,7 +728,7 @@ export default function Index() {
             }}
             onUserUpdate={(u) => setCurrentUser(u)}
             onOpenFundraiser={(id) => setFundraiserView(id === -1 ? { mode: "create" } : { mode: "view", id })}
-            onOpenStickersStore={() => setShowStickers(true)}
+            onOpenStickersStore={() => openOverlay(setShowStickers)}
           />
         ) : view === "search" ? (
           <SearchPanel users={users} currentUser={currentUser} onStartChat={handleStartChat} onBack={() => { setView("chats"); setShowSidebar(true); }} />
@@ -709,11 +741,12 @@ export default function Index() {
             onUserUpdate={(u) => { setCurrentUser(u); }}
             onBack={() => { setView("chats"); setShowSidebar(true); }}
             chatsCount={realChats.length}
-            onOpenWallet={() => setShowWallet(true)}
-            onOpenPro={() => setShowPro(true)}
-            onOpenProSettings={() => setShowProSettings(true)}
-            onOpenProgress={() => setShowProgress(true)}
-            onOpenBots={() => setShowBots(true)}
+            onOpenWallet={() => openOverlay(setShowWallet)}
+            onOpenPro={() => openOverlay(setShowPro)}
+            onOpenProSettings={() => openOverlay(setShowProSettings)}
+            onOpenProgress={() => openOverlay(setShowProgress)}
+            onOpenBots={() => openOverlay(setShowBots)}
+            onOpenSupport={() => openOverlay(setShowSupport)}
           />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />
