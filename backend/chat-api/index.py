@@ -476,6 +476,176 @@ def handler(event: dict, context) -> dict:
         } for r in rows]
         return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
 
+    # ── scheduled_messages ────────────────────────────────────────────────────
+    if action == "schedule_message":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+            scheduled_at = int(body.get("scheduled_at") or 0)
+        except (TypeError, ValueError):
+            conn.close(); return err("Неверный chat_id/scheduled_at")
+        text = (body.get("text") or "").strip()[:4000]
+        media_url = body.get("media_url") or None
+        media_type = body.get("media_type") or None
+        file_name = body.get("file_name") or None
+        try:
+            file_size = int(body.get("file_size") or 0) or None
+        except Exception:
+            file_size = None
+        try:
+            duration = int(body.get("duration") or 0) or None
+        except Exception:
+            duration = None
+        if chat_id <= 0 or scheduled_at <= 0:
+            conn.close(); return err("Нужны chat_id и scheduled_at")
+        if scheduled_at <= int(time.time()) + 5:
+            conn.close(); return err("Время отправки должно быть минимум через 10 секунд")
+        if scheduled_at > int(time.time()) + 60 * 60 * 24 * 365:
+            conn.close(); return err("Слишком далёкая дата (макс. 1 год)")
+        if not text and not media_url:
+            conn.close(); return err("Нужен text или media")
+        # Проверим что юзер участник чата
+        cur.execute(f"SELECT user1_id, user2_id FROM {SCHEMA}.chats WHERE id=%s", (chat_id,))
+        rr = cur.fetchone()
+        if not rr or int(user_id) not in (int(rr[0]), int(rr[1])):
+            conn.close(); return err("Нет доступа к чату", 403)
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.scheduled_messages
+                (chat_id, sender_id, text, media_url, media_type, file_name, file_size, duration, scheduled_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (chat_id, int(user_id), text, media_url, media_type, file_name, file_size, duration, scheduled_at, int(time.time()))
+        )
+        sid = int(cur.fetchone()[0])
+        conn.close()
+        return ok({"id": sid, "scheduled_at": scheduled_at})
+
+    if action == "scheduled_list":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        if chat_id:
+            cur.execute(
+                f"""SELECT id, chat_id, text, media_url, media_type, file_name, scheduled_at, created_at
+                    FROM {SCHEMA}.scheduled_messages
+                    WHERE sender_id=%s AND chat_id=%s AND sent_at IS NULL AND cancelled_at IS NULL
+                    ORDER BY scheduled_at ASC""",
+                (int(user_id), int(chat_id))
+            )
+        else:
+            cur.execute(
+                f"""SELECT id, chat_id, text, media_url, media_type, file_name, scheduled_at, created_at
+                    FROM {SCHEMA}.scheduled_messages
+                    WHERE sender_id=%s AND sent_at IS NULL AND cancelled_at IS NULL
+                    ORDER BY scheduled_at ASC""",
+                (int(user_id),)
+            )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"items": [{
+            "id": r[0], "chat_id": r[1], "text": r[2],
+            "media_url": r[3], "media_type": r[4], "file_name": r[5],
+            "scheduled_at": int(r[6]), "created_at": int(r[7]),
+        } for r in rows]})
+
+    if action == "scheduled_cancel":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный id")
+        cur.execute(
+            f"""UPDATE {SCHEMA}.scheduled_messages
+                SET cancelled_at=%s
+                WHERE id=%s AND sender_id=%s AND sent_at IS NULL AND cancelled_at IS NULL
+                RETURNING id""",
+            (int(time.time()), sid, int(user_id))
+        )
+        rr = cur.fetchone()
+        conn.close()
+        if not rr:
+            return err("Не найдено или уже отправлено", 404)
+        return ok({"cancelled": True})
+
+    if action == "scheduled_run_due":
+        # Запускается фронтом периодически — отправляет все доспевшие сообщения юзера
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        now = int(time.time())
+        cur.execute(
+            f"""SELECT id, chat_id, text, media_url, media_type, file_name, file_size, duration
+                FROM {SCHEMA}.scheduled_messages
+                WHERE sender_id=%s AND sent_at IS NULL AND cancelled_at IS NULL AND scheduled_at <= %s
+                ORDER BY scheduled_at ASC LIMIT 20""",
+            (int(user_id), now)
+        )
+        due = cur.fetchall()
+        sent_ids = []
+        for row in due:
+            sid, chat_id, text, media_url, media_type, file_name, file_size, duration = row
+            kind = "text"
+            try:
+                cur.execute(
+                    f"""INSERT INTO {SCHEMA}.messages
+                        (chat_id, sender_id, text, image_url, media_type, media_url, file_name, file_size, duration, created_at, kind)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                    (int(chat_id), int(user_id), text or "",
+                     media_url if media_type == "image" else None,
+                     media_type, media_url, file_name, file_size, duration, now, kind)
+                )
+                msg_id = int(cur.fetchone()[0])
+                preview = (text or {"image": "📷 Фото", "video": "📹 Видео", "audio": "🎵 Аудио", "file": "📎 Файл"}.get(media_type or "", "Сообщение"))[:100]
+                cur.execute(
+                    f"UPDATE {SCHEMA}.chats SET last_message=%s, last_message_at=%s WHERE id=%s",
+                    (preview, now, int(chat_id))
+                )
+                cur.execute(
+                    f"UPDATE {SCHEMA}.scheduled_messages SET sent_at=%s, sent_message_id=%s WHERE id=%s",
+                    (now, msg_id, sid)
+                )
+                sent_ids.append(sid)
+            except Exception:
+                conn.rollback(); cur = conn.cursor()
+                continue
+        conn.close()
+        return ok({"sent": len(sent_ids), "ids": sent_ids})
+
+    # ── chat_wallpaper ────────────────────────────────────────────────────────
+    if action == "set_wallpaper":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный chat_id")
+        wallpaper = body.get("wallpaper")
+        if wallpaper is not None:
+            wallpaper = str(wallpaper)[:300]
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chat_settings (user_id, chat_id, wallpaper)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, chat_id) DO UPDATE SET wallpaper=EXCLUDED.wallpaper""",
+            (int(user_id), chat_id, wallpaper)
+        )
+        conn.close()
+        return ok({"wallpaper": wallpaper})
+
+    if action == "get_wallpaper":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            chat_id = int(body.get("chat_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный chat_id")
+        cur.execute(
+            f"SELECT wallpaper FROM {SCHEMA}.chat_settings WHERE user_id=%s AND chat_id=%s",
+            (int(user_id), chat_id)
+        )
+        rr = cur.fetchone()
+        conn.close()
+        return ok({"wallpaper": (rr[0] if rr else None)})
+
     # ── send_message ──────────────────────────────────────────────────────────
     if action == "send_message":
         if not user_id:

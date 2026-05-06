@@ -26,6 +26,7 @@ export function ChatHeader({
   onToggleArchive,
   onSetDisappearing,
   disappearingSeconds,
+  onChooseWallpaper,
 }: {
   chat: Chat;
   onBack: () => void;
@@ -45,6 +46,7 @@ export function ChatHeader({
   onToggleArchive: () => void;
   onSetDisappearing?: () => void;
   disappearingSeconds?: number | null;
+  onChooseWallpaper?: () => void;
 }) {
   const headerHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHeaderHold = () => {
@@ -97,6 +99,7 @@ export function ChatHeader({
       active: !!disappearingSeconds,
       onClick: onSetDisappearing,
     }] : []),
+    ...(onChooseWallpaper ? [{ icon: "Image" as IconName, label: "Обои чата", onClick: onChooseWallpaper }] : []),
     { icon: "Trash2", label: "Очистить историю", red: true, onClick: onClearHistory },
     { icon: "Ban", label: "Заблокировать", red: true, onClick: onBlock },
   ];
@@ -327,6 +330,9 @@ export function ChatInput({
   onAttachFundraiser,
   onOpenStickerPicker,
   stickerPickerSlot,
+  onSchedule,
+  onShowScheduledList,
+  scheduledCount,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -351,6 +357,9 @@ export function ChatInput({
   onAttachFundraiser?: () => void;
   onOpenStickerPicker?: () => void;
   stickerPickerSlot?: React.ReactNode;
+  onSchedule?: () => void;
+  onShowScheduledList?: () => void;
+  scheduledCount?: number;
 }) {
   const [showEmoji, setShowEmoji] = useState(false);
   return (
@@ -439,7 +448,26 @@ export function ChatInput({
               <span className="text-[10px] text-muted-foreground">Стикеры</span>
             </button>
           )}
+          {onSchedule && (
+            <button
+              onClick={onSchedule}
+              className="flex flex-col items-center gap-1 p-3 glass rounded-2xl hover:bg-white/8 transition-colors"
+            >
+              <Icon name="Clock" size={20} className="text-cyan-400" />
+              <span className="text-[10px] text-muted-foreground">Отложить</span>
+            </button>
+          )}
         </div>
+      )}
+      {!showAttach && (scheduledCount ?? 0) > 0 && onShowScheduledList && (
+        <button
+          onClick={onShowScheduledList}
+          className="mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/15 transition-colors"
+        >
+          <Icon name="Clock" size={14} />
+          Запланировано: {scheduledCount}
+          <Icon name="ChevronRight" size={14} className="ml-auto" />
+        </button>
       )}
       {stickerPickerSlot}
       {uploading && (

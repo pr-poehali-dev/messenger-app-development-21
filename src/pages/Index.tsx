@@ -206,6 +206,14 @@ export default function Index() {
     });
   }, [currentUser]);
 
+  // Глобальная отправка запланированных сообщений (раз в минуту)
+  useEffect(() => {
+    if (!currentUser) return;
+    api("scheduled_run_due", {}, currentUser.id);
+    const t = setInterval(() => api("scheduled_run_due", {}, currentUser.id), 60000);
+    return () => clearInterval(t);
+  }, [currentUser]);
+
   const handleStartChat = async (partnerId: number) => {
     if (!currentUser) return;
     const data = await api("get_or_create_chat", { partner_id: partnerId }, currentUser.id);

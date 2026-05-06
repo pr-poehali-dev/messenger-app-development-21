@@ -17,6 +17,9 @@ import StickerPicker from "@/components/messenger/StickerPicker";
 import DisappearingModal from "@/components/messenger/DisappearingModal";
 import ExpiringIndicator from "@/components/messenger/ExpiringIndicator";
 import BotInlineButtons, { type InlineButton } from "@/components/messenger/BotInlineButtons";
+import ScheduleModal from "@/components/messenger/ScheduleModal";
+import ScheduledList, { type ScheduledItem } from "@/components/messenger/ScheduledList";
+import WallpaperPicker, { wallpaperById } from "@/components/messenger/WallpaperPicker";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, ChatList } from "@/components/messenger/ChatAtoms";
@@ -84,6 +87,22 @@ export function ChatWindow({
   const [recording, setRecording] = useState(false);
   const [recordSec, setRecordSec] = useState(0);
   const [showVideoCircle, setShowVideoCircle] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showScheduledList, setShowScheduledList] = useState(false);
+  const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
+  const [wallpaper, setWallpaper] = useState<string | null>(null);
+  const [showWallpaper, setShowWallpaper] = useState(false);
+  useEffect(() => {
+    const ls = localStorage.getItem(`nova_wp_${chat.id}`);
+    if (ls) setWallpaper(ls);
+    api("get_wallpaper", { chat_id: chat.id }, currentUser.id).then(r => {
+      if (r && !r.error) {
+        setWallpaper(r.wallpaper || null);
+        if (r.wallpaper) localStorage.setItem(`nova_wp_${chat.id}`, r.wallpaper);
+        else localStorage.removeItem(`nova_wp_${chat.id}`);
+      }
+    });
+  }, [chat.id, currentUser.id]);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -174,6 +193,24 @@ export function ChatWindow({
     }, 2500);
     return () => clearInterval(interval);
   }, [chat.id, currentUser.id]);
+
+  // Загрузка запланированных + автозапуск отправки доспевших
+  const reloadScheduled = useCallback(async () => {
+    const r = await api("scheduled_list", { chat_id: chat.id }, currentUser.id);
+    if (r && Array.isArray(r.items)) setScheduled(r.items);
+  }, [chat.id, currentUser.id]);
+
+  useEffect(() => {
+    reloadScheduled();
+    const t = setInterval(async () => {
+      const r = await api("scheduled_run_due", {}, currentUser.id);
+      if (r && r.sent && r.sent > 0) {
+        setLastSince(0);
+      }
+      reloadScheduled();
+    }, 30000);
+    return () => clearInterval(t);
+  }, [reloadScheduled, currentUser.id]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -477,6 +514,7 @@ export function ChatWindow({
         onToggleArchive={handleToggleArchive}
         onSetDisappearing={() => setShowDisappearing(true)}
         disappearingSeconds={disappearingSec}
+        onChooseWallpaper={() => setShowWallpaper(true)}
       />
 
       {confirm && (
@@ -549,6 +587,7 @@ export function ChatWindow({
         ref={messagesScrollRef}
         onScroll={handleMessagesScroll}
         className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5 relative"
+        style={wallpaperById(wallpaper) ? { background: wallpaperById(wallpaper) } : undefined}
         onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}
       >
         {(() => {
@@ -805,6 +844,9 @@ export function ChatWindow({
         onSendGift={() => { setShowAttach(false); setShowGiftModal(true); }}
         onAttachFundraiser={() => { setShowAttach(false); setShowFundModal(true); }}
         onOpenStickerPicker={() => { setShowAttach(false); setShowStickerPicker(p => !p); }}
+        onSchedule={() => { setShowAttach(false); setShowSchedule(true); }}
+        onShowScheduledList={() => setShowScheduledList(true)}
+        scheduledCount={scheduled.length}
         stickerPickerSlot={showStickerPicker ? (
           <StickerPicker
             currentUser={currentUser}
@@ -874,6 +916,44 @@ export function ChatWindow({
         open={showVideoCircle}
         onClose={() => setShowVideoCircle(false)}
         onRecorded={(file) => sendFile(file)}
+      />
+
+      <ScheduleModal
+        open={showSchedule}
+        hasContent={!!input.trim()}
+        onClose={() => setShowSchedule(false)}
+        onConfirm={async (ts) => {
+          const r = await api("schedule_message", {
+            chat_id: chat.id,
+            text: input.trim(),
+            scheduled_at: ts,
+          }, currentUser.id);
+          if (r?.error) throw new Error(r.error);
+          setInput("");
+          reloadScheduled();
+        }}
+      />
+
+      <ScheduledList
+        open={showScheduledList}
+        items={scheduled}
+        onClose={() => setShowScheduledList(false)}
+        onCancel={async (id) => {
+          await api("scheduled_cancel", { id }, currentUser.id);
+          reloadScheduled();
+        }}
+      />
+
+      <WallpaperPicker
+        open={showWallpaper}
+        current={wallpaper}
+        onClose={() => setShowWallpaper(false)}
+        onSelect={async (id) => {
+          setWallpaper(id);
+          if (id) localStorage.setItem(`nova_wp_${chat.id}`, id);
+          else localStorage.removeItem(`nova_wp_${chat.id}`);
+          await api("set_wallpaper", { chat_id: chat.id, wallpaper: id }, currentUser.id);
+        }}
       />
     </div>
   );
