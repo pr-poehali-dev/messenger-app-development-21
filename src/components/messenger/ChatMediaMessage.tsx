@@ -10,9 +10,11 @@ export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"
 
 // ─── MediaMessage ─────────────────────────────────────────────────────────────
 
-export function MediaMessage({ msg, gallery = [], galleryIndex = 0, out = false }: { msg: Message; gallery?: MediaItem[]; galleryIndex?: number; out?: boolean }) {
+export function MediaMessage({ msg, gallery = [], galleryIndex = 0, out = false }: { msg?: Message | null; gallery?: MediaItem[]; galleryIndex?: number; out?: boolean }) {
   const [imgError, setImgError] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
+
+  if (!msg) return null;
 
   const mediaUrl = msg.media_url || msg.image_url;
   const mediaType = msg.media_type || (msg.image_url ? "image" : null);
