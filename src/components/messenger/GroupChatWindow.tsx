@@ -6,6 +6,7 @@ import { MediaMessage } from "@/components/messenger/ChatMediaMessage";
 import EmojiStickerPicker from "@/components/messenger/EmojiStickerPicker";
 import { LinkifiedText } from "@/components/messenger/LinkifiedText";
 import VideoCircleRecorder from "@/components/messenger/VideoCircleRecorder";
+import GroupProfilePanel from "@/components/messenger/GroupProfilePanel";
 
 const POLL_MS = 2500;
 
@@ -14,9 +15,10 @@ interface Props {
   currentUser: User;
   onBack: () => void;
   onGroupUpdated?: (g: Group) => void;
+  onGroupDeleted?: () => void;
 }
 
-export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated }: Props) {
+export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, onGroupDeleted }: Props) {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [input, setInput] = useState("");
@@ -365,15 +367,16 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated }: 
       <VideoCircleRecorder open={showVideoCircle} onClose={() => setShowVideoCircle(false)}
         onRecorded={file => sendFile(file)} />
 
-      {/* Group Info Panel */}
+      {/* Group Profile Panel */}
       {showInfo && (
-        <GroupInfoPanel
+        <GroupProfilePanel
           group={group}
           members={members}
           currentUser={currentUser}
           myRole={myRole}
           onClose={() => setShowInfo(false)}
-          onGroupUpdated={g => { onGroupUpdated?.(g); setShowInfo(false); }}
+          onGroupUpdated={g => { onGroupUpdated?.(g); }}
+          onGroupDeleted={() => { onGroupDeleted?.(); }}
           onMembersChanged={() => {
             api("get_group_members", { group_id: group.id }, currentUser.id).then(d => {
               if (d.members) setMembers(d.members.filter((m: GroupMember) => m.role !== "removed"));
@@ -381,126 +384,6 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated }: 
           }}
         />
       )}
-    </div>
-  );
-}
-
-// ─── GroupInfoPanel ─────────────────────────────────────────────────────────
-function GroupInfoPanel({ group, members, currentUser, myRole, onClose, onGroupUpdated, onMembersChanged }: {
-  group: Group;
-  members: GroupMember[];
-  currentUser: User;
-  myRole?: string;
-  onClose: () => void;
-  onGroupUpdated: (g: Group) => void;
-  onMembersChanged: () => void;
-}) {
-  const [editName, setEditName] = useState(group.name);
-  const [saving, setSaving] = useState(false);
-  const isAdmin = myRole === "owner" || myRole === "admin";
-
-  const save = async () => {
-    if (!editName.trim()) return;
-    setSaving(true);
-    await api("update_group", { group_id: group.id, name: editName.trim() }, currentUser.id);
-    onGroupUpdated({ ...group, name: editName.trim() });
-    setSaving(false);
-  };
-
-  const promote = async (userId: number, role: "admin" | "member") => {
-    await api("set_member_role", { group_id: group.id, target_user_id: userId, role }, currentUser.id);
-    onMembersChanged();
-  };
-
-  const kick = async (userId: number) => {
-    await api("remove_group_member", { group_id: group.id, kick_user_id: userId }, currentUser.id);
-    onMembersChanged();
-  };
-
-  const leave = async () => {
-    await api("remove_group_member", { group_id: group.id, kick_user_id: currentUser.id }, currentUser.id);
-    onClose();
-    window.location.reload();
-  };
-
-  return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-[hsl(var(--background))] animate-fade-in">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5"
-        style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
-        <button onClick={onClose} className="p-2 -ml-2 rounded-xl hover:bg-white/8">
-          <Icon name="ChevronLeft" size={20} />
-        </button>
-        <h2 className="font-bold flex-1">Информация</h2>
-        {isAdmin && saving && (
-          <div className="w-4 h-4 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
-        )}
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {/* Avatar + name */}
-        <div className="flex flex-col items-center py-8 px-4 text-center">
-          {group.avatar_url ? (
-            <img src={group.avatar_url} className="w-24 h-24 rounded-3xl object-cover mb-3" />
-          ) : (
-            <div className="w-24 h-24 rounded-3xl grad-primary flex items-center justify-center mb-3">
-              <Icon name={group.is_channel ? "Radio" : "Users"} size={40} className="text-white" />
-            </div>
-          )}
-          {isAdmin ? (
-            <input value={editName} onChange={e => setEditName(e.target.value)}
-              onBlur={save}
-              className="text-xl font-bold bg-transparent border-b border-white/20 text-center outline-none focus:border-violet-500 pb-0.5" />
-          ) : (
-            <h1 className="text-xl font-bold">{group.name}</h1>
-          )}
-          <p className="text-sm text-muted-foreground mt-1">
-            {group.is_channel ? "Канал" : "Группа"} · {members.length} участников
-          </p>
-          {group.description && (
-            <p className="text-sm text-muted-foreground mt-2 max-w-xs">{group.description}</p>
-          )}
-        </div>
-
-        {/* Members */}
-        <div className="px-4 pb-6">
-          <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wider mb-2">Участники</div>
-          <div className="space-y-0.5">
-            {members.map(m => (
-              <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5">
-                <Avatar label={m.name[0]?.toUpperCase() || "?"} id={m.id} src={m.avatar_url} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-1.5">
-                    {m.name}
-                    {m.id === currentUser.id && <span className="text-[10px] text-muted-foreground">(вы)</span>}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {m.role === "owner" ? "Владелец" : m.role === "admin" ? "Администратор" : "Участник"}
-                  </div>
-                </div>
-                {isAdmin && m.id !== currentUser.id && m.role !== "owner" && (
-                  <div className="flex gap-1">
-                    <button onClick={() => promote(m.id, m.role === "admin" ? "member" : "admin")}
-                      className="p-1.5 rounded-lg hover:bg-white/8 text-muted-foreground"
-                      title={m.role === "admin" ? "Понизить" : "Сделать админом"}>
-                      <Icon name={m.role === "admin" ? "ShieldOff" : "ShieldCheck"} size={14} />
-                    </button>
-                    <button onClick={() => kick(m.id)}
-                      className="p-1.5 rounded-lg hover:bg-red-500/15 text-red-400" title="Исключить">
-                      <Icon name="UserMinus" size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <button onClick={leave}
-            className="w-full mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-red-500/10 transition">
-            <Icon name="LogOut" size={18} className="text-red-400" />
-            <span className="text-sm font-medium text-red-400">
-              {myRole === "owner" ? "Удалить группу" : "Покинуть группу"}
-            </span>
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -2009,6 +2009,66 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"ok": True})
 
+    # ── get_group_info ────────────────────────────────────────────────────────
+    if action == "get_group_info":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        # Проверка членства
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (gid, int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] == 'removed':
+            conn.close(); return err("Нет доступа", 403)
+        cur.execute(
+            f"""SELECT g.id, g.name, g.description, g.avatar_url, g.owner_id, g.is_channel,
+                       g.invite_link, g.created_at, g.last_message, g.last_message_at,
+                       (SELECT COUNT(*) FROM {SCHEMA}.group_members gm WHERE gm.group_id=g.id AND gm.role!='removed') AS members_count
+                FROM {SCHEMA}.groups g WHERE g.id=%s""",
+            (gid,)
+        )
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Группа не найдена", 404)
+        conn.close()
+        return ok({"group": {
+            "id": r[0], "name": r[1], "description": r[2] or "",
+            "avatar_url": r[3], "owner_id": r[4], "is_channel": bool(r[5]),
+            "invite_link": r[6], "created_at": int(r[7] or 0),
+            "last_message": r[8] or "", "last_message_at": int(r[9] or 0),
+            "members_count": int(r[10] or 0),
+            "my_role": me[0],
+        }})
+
+    # ── regenerate_group_invite ───────────────────────────────────────────────
+    if action == "regenerate_group_invite":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (gid, int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] not in ('owner', 'admin'):
+            conn.close(); return err("Только владелец или админ может перегенерировать ссылку", 403)
+        import secrets as _secrets
+        invite = _secrets.token_urlsafe(12)
+        cur.execute(
+            f"UPDATE {SCHEMA}.groups SET invite_link=%s WHERE id=%s",
+            (invite, gid)
+        )
+        conn.close()
+        return ok({"invite_link": invite})
+
     # ── join_by_invite ────────────────────────────────────────────────────────
     if action == "join_by_invite":
         if not user_id:

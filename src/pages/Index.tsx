@@ -86,6 +86,18 @@ export default function Index() {
     }
   }, []);
 
+  // Автоматический вход в группу/канал по ссылке ?join=CODE
+  const [pendingJoin, setPendingJoin] = useState<string | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("join");
+    if (code) {
+      setPendingJoin(code);
+      url.searchParams.delete("join");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   const [activeTab, setActiveTab] = useState<Tab>("chats");
   const [view, setView] = useState<View>("chats");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -223,6 +235,25 @@ export default function Index() {
     const t = setInterval(loadGroups, 6000);
     return () => clearInterval(t);
   }, [currentUser]);
+
+  // Обработка ?join=CODE после авторизации
+  useEffect(() => {
+    if (!currentUser || !pendingJoin) return;
+    const code = pendingJoin;
+    setPendingJoin(null);
+    api("join_by_invite", { invite_link: code }, currentUser.id).then(r => {
+      if (r?.error) { alert("Не удалось войти: " + r.error); return; }
+      if (r?.group_id) {
+        const g: Group = { id: r.group_id, name: r.name || "Группа", owner_id: 0, is_channel: !!r.is_channel };
+        setGroups(prev => prev.some(x => x.id === g.id) ? prev : [g, ...prev]);
+        setSelectedGroup(g);
+        setSelectedChat(null);
+        setShowSidebar(false);
+        // Подгрузим актуальный список
+        api("get_groups", {}, currentUser.id).then(d => { if (d.groups) setGroups(d.groups); });
+      }
+    });
+  }, [currentUser, pendingJoin]);
 
   // Загрузка пользователей для поиска
   useEffect(() => {
@@ -703,6 +734,12 @@ export default function Index() {
             onGroupUpdated={(g) => {
               setSelectedGroup(g);
               setGroups(prev => prev.map(gr => gr.id === g.id ? { ...gr, ...g } : gr));
+            }}
+            onGroupDeleted={() => {
+              const removedId = selectedGroup.id;
+              setGroups(prev => prev.filter(gr => gr.id !== removedId));
+              setSelectedGroup(null);
+              setShowSidebar(true);
             }}
           />
         ) : selectedChat ? (
