@@ -51,7 +51,7 @@ export default function SavedNotesPanel({
   const fmt = (ts: number) => new Date(ts * 1000).toLocaleString("ru", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[#0d0d1a] flex flex-col animate-fade-in">
+    <div className="fixed inset-0 z-[260] bg-background flex flex-col animate-fade-in">
       <div className="flex items-center gap-2 px-3 py-2 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8"><Icon name="ChevronLeft" size={20} /></button>
         <Icon name="Bookmark" size={18} className="text-violet-400" />

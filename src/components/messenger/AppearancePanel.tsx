@@ -74,7 +74,7 @@ export default function AppearancePanel({
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[#0d0d1a] flex flex-col animate-fade-in">
+    <div className="fixed inset-0 z-[260] bg-background flex flex-col animate-fade-in">
       {/* Минималистичный header */}
       <div className="flex items-center gap-2 px-2 py-2 border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
         <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/5 transition" aria-label="Назад">

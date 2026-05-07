@@ -39,7 +39,7 @@ export default function NotificationsPanel({
   );
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[#0d0d1a] flex flex-col animate-fade-in">
+    <div className="fixed inset-0 z-[260] bg-background flex flex-col animate-fade-in">
       <div className="flex items-center gap-2 px-3 py-2 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8">
           <Icon name="ChevronLeft" size={20} />

@@ -2617,15 +2617,16 @@ def handler(event: dict, context) -> dict:
     # ── search_channels — публичный поиск ─────────────────────────────────────
     if action == "search_channels":
         q = (body.get("q") or "").strip()
-        if not q or len(q) < 2:
+        if not q:
             conn.close(); return ok({"items": []})
+        # Поддержка короткого запроса (>=1 символ для удобства)
         cur.execute(
-            f"""SELECT g.id, g.name, g.description, g.avatar_url, g.is_channel,
+            f"""SELECT g.id, g.name, COALESCE(g.description, '') AS description,
+                       g.avatar_url, g.is_channel,
                        (SELECT COUNT(*) FROM {SCHEMA}.group_members gm WHERE gm.group_id=g.id AND gm.role!='removed') AS members
                 FROM {SCHEMA}.groups g
-                WHERE g.invite_link IS NOT NULL AND g.invite_link != ''
-                  AND (g.name ILIKE %s OR g.description ILIKE %s)
-                ORDER BY members DESC LIMIT 30""",
+                WHERE (g.name ILIKE %s OR COALESCE(g.description, '') ILIKE %s)
+                ORDER BY members DESC, g.id DESC LIMIT 50""",
             (f"%{q}%", f"%{q}%")
         )
         rows = cur.fetchall()

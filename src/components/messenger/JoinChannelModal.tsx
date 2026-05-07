@@ -36,7 +36,7 @@ export default function JoinChannelModal({
   }, [open]);
 
   useEffect(() => {
-    if (tab !== "search" || q.trim().length < 2) { setItems([]); return; }
+    if (tab !== "search" || !q.trim()) { setItems([]); return; }
     let cancel = false;
     setLoading(true);
     const t = setTimeout(async () => {
@@ -122,7 +122,7 @@ export default function JoinChannelModal({
               />
             </div>
             {loading && <div className="text-center text-xs text-muted-foreground py-3">Ищу…</div>}
-            {!loading && q.trim().length >= 2 && items.length === 0 && (
+            {!loading && q.trim().length > 0 && items.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-6">Ничего не нашлось</p>
             )}
             <div className="space-y-2">

@@ -26,6 +26,7 @@ import ProgressPanel from "@/components/messenger/ProgressPanel";
 import SupportPanel from "@/components/messenger/SupportPanel";
 import { useOverlays } from "@/hooks/useOverlays";
 import { LanguageSwitcher } from "@/components/messenger/LanguageSwitcher";
+import { useT } from "@/hooks/useT";
 import PremiumPanel from "@/components/messenger/PremiumPanel";
 import PrivacyPanel from "@/components/messenger/PrivacyPanel";
 import NotificationsPanel from "@/components/messenger/NotificationsPanel";
@@ -123,6 +124,7 @@ export default function Index() {
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
 
   const overlays = useOverlays();
+  const { t: tr } = useT();
   const {
     showAdmin, setShowAdmin,
     showPro, setShowPro,
@@ -477,7 +479,7 @@ export default function Index() {
 
       {/* Мои боты */}
       {showBots && currentUser && (
-        <div className="fixed inset-0 z-[200] bg-[#0d0d1a] animate-fade-in">
+        <div className="fixed inset-0 z-[200] bg-background animate-fade-in">
           <BotsPanel
             currentUser={currentUser}
             onBack={() => setShowBots(false)}
@@ -601,7 +603,7 @@ export default function Index() {
                 activeTab === t ? "grad-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ chats: "Чаты", stories: "Истории", contacts: "Контакты" }[t]}
+              {tr({ chats: "nav.chats", stories: "nav.stories", contacts: "nav.contacts" }[t])}
             </button>
           ))}
         </div>
@@ -612,7 +614,7 @@ export default function Index() {
           <input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Поиск..."
+            placeholder={tr("common.search") + "..."}
             className="flex-1 bg-transparent outline-none text-sm text-foreground placeholder-muted-foreground"
           />
         </div>

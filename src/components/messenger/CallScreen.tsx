@@ -291,7 +291,7 @@ export function CallScreen({ currentUser, remoteUserId, remoteName, callId, isIn
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-[#0d0d1a] py-16 px-8 animate-fade-in"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-background py-16 px-8 animate-fade-in"
       onPointerDown={unlockAudio}
     >
       <audio ref={remoteAudioRef} autoPlay playsInline />
