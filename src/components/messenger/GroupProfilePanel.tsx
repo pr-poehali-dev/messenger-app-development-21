@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, uploadMedia, type User, type Group, type GroupMember, type Contact } from "@/lib/api";
 import { Avatar } from "@/components/messenger/ChatAtoms";
+import { ConfirmDialog } from "@/components/messenger/ConfirmDialog";
+import { AddMemberModal } from "@/components/messenger/AddMemberModal";
 
 type Tab = "info" | "members" | "admins";
 
@@ -513,53 +515,16 @@ export function GroupProfilePanel({
         )}
       </div>
 
-      {/* === Add member modal === */}
-      {showAddMember && (
-        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowAddMember(false)}>
-          <div className="w-full max-w-md glass-strong rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()} style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">Добавить участников</h3>
-              <button onClick={() => setShowAddMember(false)} className="p-2 glass rounded-xl">
-                <Icon name="X" size={16} />
-              </button>
-            </div>
-            <div className="flex items-center gap-2 glass rounded-xl px-3 py-2 mb-3">
-              <Icon name="Search" size={14} className="text-muted-foreground" />
-              <input
-                value={contactSearch}
-                onChange={e => setContactSearch(e.target.value)}
-                placeholder="Поиск по контактам"
-                autoFocus
-                className="flex-1 bg-transparent outline-none text-sm"
-              />
-            </div>
-            {filteredContacts.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-8">
-                {contacts.length === 0 ? "Нет контактов" : "Все ваши контакты уже в группе"}
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {filteredContacts.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5">
-                    <Avatar label={c.name[0]?.toUpperCase() || "?"} id={c.id} src={c.avatar_url} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{c.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{c.phone}</div>
-                    </div>
-                    <button
-                      onClick={() => addMember(c.id)}
-                      disabled={addingId === c.id}
-                      className="px-3 py-1.5 grad-primary text-white text-xs font-bold rounded-xl disabled:opacity-50"
-                    >
-                      {addingId === c.id ? "..." : "Добавить"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <AddMemberModal
+        open={showAddMember}
+        onClose={() => setShowAddMember(false)}
+        contacts={contacts}
+        filteredContacts={filteredContacts}
+        contactSearch={contactSearch}
+        setContactSearch={setContactSearch}
+        addingId={addingId}
+        onAdd={addMember}
+      />
 
       {/* === Confirms === */}
       {confirmKick && (
@@ -592,30 +557,6 @@ export function GroupProfilePanel({
           onConfirm={deleteGroup}
         />
       )}
-    </div>
-  );
-}
-
-function ConfirmDialog({ title, text, danger, loading, onCancel, onConfirm }: {
-  title: string; text: string; danger?: boolean; loading?: boolean;
-  onCancel: () => void; onConfirm: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onClick={onCancel}>
-      <div className="w-full max-w-sm glass-strong rounded-3xl p-5 animate-scale-in" onClick={e => e.stopPropagation()}>
-        <h3 className="font-bold text-base mb-1">{title}</h3>
-        <p className="text-sm text-muted-foreground mb-4">{text}</p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} disabled={loading} className="flex-1 glass rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50">Отмена</button>
-          <button
-            onClick={onConfirm}
-            disabled={loading}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-bold text-white disabled:opacity-50 ${danger ? "bg-red-500 hover:bg-red-600" : "grad-primary"}`}
-          >
-            {loading ? "..." : "Подтвердить"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
