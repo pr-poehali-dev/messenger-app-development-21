@@ -75,9 +75,9 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
     });
   }, [group.id, currentUser.id, loadMessages]);
 
-  const myRole2 = members.find(m => m.id === currentUser.id)?.role;
-  const isAdminHere = myRole2 === "owner" || myRole2 === "admin";
-  const canWrite = !group.is_channel && !onlyAdminsPost || isAdminHere;
+  const myRole = members.find(m => m.id === currentUser.id)?.role;
+  const isAdminHere = myRole === "owner" || myRole === "admin";
+  const canWrite = (!group.is_channel && !onlyAdminsPost) || isAdminHere;
 
   const pinMessage = async (msgId: number) => {
     setCtxMenu(null);
@@ -161,9 +161,6 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
     if (recordTimer.current) clearInterval(recordTimer.current);
     setRecording(false);
   };
-
-  const myRole = members.find(m => m.id === currentUser.id)?.role;
-  const canWrite = !group.is_channel || myRole === "owner" || myRole === "admin";
 
   // Группировка по датам
   const groupedMessages = messages.reduce<{ date: string; msgs: GroupMessage[] }[]>((acc, msg) => {
