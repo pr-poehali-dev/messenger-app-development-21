@@ -1,90 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
-
-const ADMIN_URL = "https://functions.poehali.dev/74374a22-83da-4771-855b-1716418e719b";
-
-async function adminApi(action: string, body: Record<string, unknown> = {}, token: string) {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 15000);
-    const res = await fetch(ADMIN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-      body: JSON.stringify({ action, ...body }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(t);
-    if (!res.ok) {
-      return { error: `HTTP ${res.status}` };
-    }
-    return await res.json();
-  } catch (e) {
-    return { error: (e as Error).message || "Сетевая ошибка" };
-  }
-}
-
-interface Stats {
-  users: { total: number; online: number; new_24h: number };
-  messages: { total: number; last_1h: number; last_24h: number; per_min: number };
-  chats: number;
-  push_subs: number;
-  calls_1h: number;
-  load: { level: string; tip: string; msg_per_min: number };
-}
-
-interface SupportTicket {
-  id: number;
-  user_id: number;
-  user_name: string;
-  user_phone: string;
-  user_avatar?: string | null;
-  subject: string;
-  status: "open" | "closed";
-  created_at: number;
-  last_message_at: number;
-  unread: number;
-  last_text: string;
-}
-interface SupportMsg {
-  id: number;
-  sender_id: number | null;
-  is_admin: boolean;
-  text: string;
-  created_at: number;
-}
-
-interface AdminUser {
-  id: number; phone: string; name: string; last_seen: number; created_at: number;
-  online: boolean; avatar_url?: string | null;
-  msg_count?: number; chat_count?: number; contacts_count?: number;
-  active_stories?: number; push_subscriptions?: number;
-  blocks_out?: number; blocks_in?: number;
-  about?: string | null; gender?: string | null; birthdate?: string | null;
-  wallet_balance?: number; pro_until?: number | null; is_pro?: boolean;
-  emoji_status?: string | null; name_color?: string | null; incognito?: boolean;
-  who_can_message?: string; who_can_call?: string;
-  lightning_balance?: number; pro_trial_used?: boolean;
-  stickers_subscription_until?: number | null;
-  xp?: number; level?: number; daily_streak?: number;
-  is_bot?: boolean; bot_owner_id?: number | null;
-  bot_username?: string | null; bot_description?: string | null; bot_webhook_url?: string | null;
-  last_message_at?: number | null;
-  owned_bots?: { id: number; name: string; username: string }[];
-}
-
-const LOAD_COLOR: Record<string, string> = {
-  low: "text-emerald-400",
-  medium: "text-amber-400",
-  high: "text-red-400",
-};
-const LOAD_BG: Record<string, string> = {
-  low: "bg-emerald-500/10 border-emerald-500/20",
-  medium: "bg-amber-500/10 border-amber-500/20",
-  high: "bg-red-500/10 border-red-500/20",
-};
-const LOAD_LABEL: Record<string, string> = {
-  low: "низкая", medium: "средняя", high: "высокая",
-};
+import {
+  adminApi,
+  Stats,
+  SupportTicket,
+  SupportMsg,
+  AdminUser,
+} from "./admin/AdminAPI";
+import { AdminStatsTab } from "./admin/AdminStatsTab";
+import { AdminUsersTab } from "./admin/AdminUsersTab";
+import { AdminSupportTab } from "./admin/AdminSupportTab";
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState(() => sessionStorage.getItem("nova_admin_token") || "");
@@ -140,7 +65,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       setToken(authInput);
       sessionStorage.setItem("nova_admin_token", authInput);
       setAuthed(true);
-      setStats(data);
+      setStats(data as unknown as Stats);
     } else if (data.error) {
       setAuthError(`Ошибка: ${data.error}`);
     } else {
@@ -150,37 +75,39 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
   const loadStats = useCallback(async () => {
     const data = await adminApi("stats", {}, token);
-    if (data.users) setStats(data);
+    if (data.users) setStats(data as unknown as Stats);
     else if (data.error) setApiError(`Не удалось загрузить статистику: ${data.error}`);
   }, [token]);
 
   const loadUsers = useCallback(async (q = "") => {
     setLoading(true);
     const data = await adminApi("users", { search: q, limit: 50 }, token);
-    if (data.users) { setUsers(data.users); setUsersTotal(data.total); }
-    else if (data.error) setApiError(`Не удалось загрузить список: ${data.error}`);
+    if (data.users) {
+      setUsers(data.users as AdminUser[]);
+      setUsersTotal(data.total as number);
+    } else if (data.error) setApiError(`Не удалось загрузить список: ${data.error}`);
     setLoading(false);
   }, [token]);
 
   const loadTickets = useCallback(async (status: "all" | "open" | "closed" = "open") => {
     const data = await adminApi("support_list_tickets", { status }, token);
     if (Array.isArray(data?.tickets)) {
-      setTickets(data.tickets);
-      setSupportUnread(data.total_unread || 0);
+      setTickets(data.tickets as SupportTicket[]);
+      setSupportUnread((data.total_unread as number) || 0);
     }
   }, [token]);
 
   const loadTicketMessages = useCallback(async (ticketId: number) => {
     const data = await adminApi("support_admin_messages", { ticket_id: ticketId }, token);
-    if (data?.messages) setTicketMessages(data.messages);
-    if (data?.ticket) setActiveTicket(data.ticket);
+    if (data?.messages) setTicketMessages(data.messages as SupportMsg[]);
+    if (data?.ticket) setActiveTicket(data.ticket as SupportTicket);
     loadTickets(ticketStatusFilter);
   }, [token, ticketStatusFilter, loadTickets]);
 
   useEffect(() => {
     if (token) {
       adminApi("stats", {}, token).then(d => {
-        if (d.users) { setAuthed(true); setStats(d); }
+        if (d.users) { setAuthed(true); setStats(d as unknown as Stats); }
       });
     }
   }, [token]);
@@ -209,7 +136,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
   const openUser = async (u: AdminUser) => {
     const data = await adminApi("user_detail", { user_id: u.id }, token);
-    if (data.user) { setSelectedUser(data.user); setEditName(data.user.name); }
+    if (data.user) {
+      setSelectedUser(data.user as AdminUser);
+      setEditName((data.user as AdminUser).name);
+    }
   };
 
   const saveUser = async () => {
@@ -217,13 +147,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     setSaving(true);
     const data = await adminApi("update_user", { user_id: selectedUser.id, name: editName }, token);
     if (data.user) {
-      setSelectedUser(data.user);
-      setUsers(prev => prev.map(u => u.id === data.user.id ? { ...u, name: data.user.name } : u));
+      const updated = data.user as AdminUser;
+      setSelectedUser(updated);
+      setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, name: updated.name } : u));
     }
     setSaving(false);
   };
 
-  const deleteUser = async (userId: number) => {
+  const deleteUser = (userId: number) => {
     setConfirmDelete(userId);
   };
 
@@ -286,13 +217,51 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const fmtDate = (ts: number) => new Date(ts * 1000).toLocaleDateString("ru", { day: "2-digit", month: "short", year: "numeric" });
-  const fmtTime = (ts: number) => {
-    const diff = Date.now() / 1000 - ts;
-    if (diff < 60) return "только что";
-    if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
-    return fmtDate(ts);
+  const handleSearchChange = (q: string) => {
+    setSearch(q);
+    loadUsers(q);
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedUser) return;
+    setMessageSending(true);
+    await adminApi("send_to_user", { user_id: selectedUser.id, text: messageText.trim() }, token);
+    setMessageSending(false);
+    setShowMessage(false);
+    setMessageText("");
+  };
+
+  const handleChangeTicketStatusFilter = (s: "all" | "open" | "closed") => {
+    setTicketStatusFilter(s);
+    loadTickets(s);
+  };
+
+  const handleOpenTicket = (t: SupportTicket) => {
+    setActiveTicket(t);
+    loadTicketMessages(t.id);
+  };
+
+  const handleCloseActiveTicket = () => {
+    setActiveTicket(null);
+    setTicketMessages([]);
+  };
+
+  const handleCloseTicket = async () => {
+    if (!activeTicket) return;
+    await adminApi("support_admin_close", { ticket_id: activeTicket.id }, token);
+    setActiveTicket({ ...activeTicket, status: "closed" });
+    loadTickets(ticketStatusFilter);
+  };
+
+  const handleSendReply = async () => {
+    if (!activeTicket) return;
+    if (!ticketReply.trim() || ticketSending) return;
+    const text = ticketReply.trim();
+    setTicketReply("");
+    setTicketSending(true);
+    await adminApi("support_admin_reply", { ticket_id: activeTicket.id, text }, token);
+    setTicketSending(false);
+    loadTicketMessages(activeTicket.id);
   };
 
   if (!authed) return (
@@ -379,635 +348,71 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* ── STATS skeleton ── */}
-        {tab === "stats" && !stats && (
-          <div className="space-y-4 animate-fade-in">
-            <div className="glass rounded-2xl p-5 h-24 animate-pulse" />
-            <div className="grid grid-cols-3 gap-3">
-              {[0,1,2].map(i => <div key={i} className="glass rounded-2xl h-20 animate-pulse" />)}
-            </div>
-            <div className="glass rounded-2xl h-40 animate-pulse" />
-          </div>
+        {tab === "stats" && (
+          <AdminStatsTab
+            stats={stats}
+            confirmNuke={confirmNuke}
+            setConfirmNuke={setConfirmNuke}
+            nuking={nuking}
+            nukeResult={nukeResult}
+            onNukeAll={runNukeAll}
+            confirmClear={confirmClear}
+            setConfirmClear={setConfirmClear}
+            clearing={clearing}
+            clearResult={clearResult}
+            onClearTestData={runClearTestData}
+            confirmClearMsgs={confirmClearMsgs}
+            setConfirmClearMsgs={setConfirmClearMsgs}
+            clearingMsgs={clearingMsgs}
+            clearMsgsResult={clearMsgsResult}
+            onClearAllMessages={runClearAllMessages}
+          />
         )}
 
-        {/* ── STATS ── */}
-        {tab === "stats" && stats && (
-          <div className="space-y-4 animate-fade-in">
+        <AdminUsersTab
+          visible={tab === "users"}
+          users={users}
+          usersTotal={usersTotal}
+          search={search}
+          onSearchChange={handleSearchChange}
+          loading={loading}
+          onOpenUser={openUser}
+          onDeleteUser={deleteUser}
+          selectedUser={selectedUser}
+          onCloseSelected={() => setSelectedUser(null)}
+          editName={editName}
+          setEditName={setEditName}
+          saving={saving}
+          onSaveUser={saveUser}
+          showMessage={showMessage}
+          setShowMessage={setShowMessage}
+          messageText={messageText}
+          setMessageText={setMessageText}
+          messageSending={messageSending}
+          onSendMessage={handleSendMessage}
+          confirmDelete={confirmDelete}
+          setConfirmDelete={setConfirmDelete}
+          onConfirmDelete={confirmDeleteUser}
+        />
 
-            {/* Новые фичи */}
-            <div className="glass rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-bold text-sm">🚀 Активные фичи</span>
-                <span className="text-[10px] text-emerald-400 font-bold">12 LIVE · 2 BETA</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                {[
-                  { name: "Группы и каналы", status: "live" },
-                  { name: "Тех.поддержка", status: "live" },
-                  { name: "Темы оформления", status: "live" },
-                  { name: "PIN-код входа", status: "live" },
-                  { name: "Избранное", status: "new" },
-                  { name: "Счета и платежи", status: "new" },
-                  { name: "Уведомления", status: "live" },
-                  { name: "Bot API", status: "beta" },
-                  { name: "Стикеры", status: "live" },
-                  { name: "Истории 24ч", status: "live" },
-                  { name: "Аудио/видео звонки", status: "live" },
-                  { name: "Исчезающие сообщения", status: "live" },
-                  { name: "Закреп в группах", status: "new" },
-                  { name: "Только админы пишут", status: "new" },
-                ].map(f => (
-                  <div key={f.name} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white/5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${f.status === "live" ? "bg-emerald-400" : f.status === "new" ? "bg-violet-400" : "bg-amber-400"}`} />
-                    <span className="truncate flex-1">{f.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Load card */}
-            <div className={`rounded-2xl border p-4 ${LOAD_BG[stats.load.level] || LOAD_BG.low}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-sm">Текущая нагрузка</span>
-                <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full ${LOAD_COLOR[stats.load.level] || LOAD_COLOR.low} bg-white/5`}>
-                  {LOAD_LABEL[stats.load.level] || stats.load.level}
-                </span>
-              </div>
-              <p className={`text-2xl font-black mb-1 ${LOAD_COLOR[stats.load.level] || LOAD_COLOR.low}`}>
-                {stats.load.msg_per_min} сообщ/мин
-              </p>
-              <p className="text-xs text-muted-foreground">{stats.load.tip}</p>
-            </div>
-
-            {/* Users */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Всего", value: stats.users.total, icon: "Users", color: "text-violet-400" },
-                { label: "Онлайн", value: stats.users.online, icon: "Wifi", color: "text-emerald-400" },
-                { label: "За 24ч", value: stats.users.new_24h, icon: "UserPlus", color: "text-sky-400" },
-              ].map(s => (
-                <div key={s.label} className="glass rounded-2xl p-3 text-center">
-                  <Icon name={s.icon as string} size={18} className={`mx-auto mb-1 ${s.color}`} />
-                  <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
-                  <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Messages */}
-            <div className="glass rounded-2xl p-4">
-              <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Icon name="MessageCircle" size={15} className="text-violet-400" /> Сообщения</h3>
-              <div className="space-y-2">
-                {[
-                  { label: "Всего", value: stats.messages.total },
-                  { label: "За последний час", value: stats.messages.last_1h },
-                  { label: "За 24 часа", value: stats.messages.last_24h },
-                  { label: "Звонков за час", value: stats.calls_1h },
-                  { label: "Push подписок", value: stats.push_subs },
-                  { label: "Чатов", value: stats.chats },
-                ].map(r => (
-                  <div key={r.label} className="flex justify-between items-center py-1.5 border-b border-white/5 last:border-0">
-                    <span className="text-sm text-muted-foreground">{r.label}</span>
-                    <span className="font-bold text-sm">{r.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Tips */}
-            <div className="glass rounded-2xl p-4">
-              <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Icon name="Lightbulb" size={15} className="text-amber-400" /> Рекомендации</h3>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                {stats.users.total > 1000 && <p>• Рассмотри горизонтальное масштабирование функций</p>}
-                {stats.messages.last_24h > 10000 && <p>• Добавь индексы на messages.created_at и messages.chat_id</p>}
-                {stats.push_subs > 500 && <p>• Push очередь: отправляй уведомления асинхронно</p>}
-                {stats.load.level === "low" && <p>• Всё отлично! Нагрузка минимальна, ресурсы используются эффективно.</p>}
-                {stats.load.level === "medium" && <p>• Следи за ростом. При увеличении нагрузки в 2× — время масштабироваться.</p>}
-                {stats.load.level === "high" && <p>• Срочно: добавь кэш Redis или увеличь timeout функций.</p>}
-              </div>
-            </div>
-
-            {/* Danger zone */}
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
-              <h3 className="font-bold text-sm mb-1 flex items-center gap-2 text-red-400">
-                <Icon name="TriangleAlert" size={15} /> Опасная зона
-              </h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Очистит имена, аватары, телефоны и last_seen у всех пользователей. Аккаунты не удаляются — но при следующем входе по номеру создадутся как новые.
-              </p>
-              {/* ☢️ Ядерная кнопка — снести всё */}
-              <div className="mb-3 pb-3 border-b border-red-500/20">
-                {nukeResult && (
-                  <div className="text-xs px-3 py-2 mb-2 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                    {nukeResult}
-                  </div>
-                )}
-                {!confirmNuke ? (
-                  <button
-                    onClick={() => setConfirmNuke(true)}
-                    className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white rounded-xl py-3 text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-500/30"
-                  >
-                    <Icon name="Bomb" size={16} fallback="TriangleAlert" /> Снести всё одной кнопкой
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-red-300">
-                      ☢️ Снесёт ВСЁ: пользователей, сообщения, чаты, реакции. Точно?
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={runNukeAll}
-                        disabled={nuking}
-                        className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-all flex items-center justify-center gap-2"
-                      >
-                        {nuking ? (
-                          <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Сношу...</>
-                        ) : (
-                          <>Да, снести всё</>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => setConfirmNuke(false)}
-                        disabled={nuking}
-                        className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
-                      >
-                        Отмена
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {clearResult && (
-                <div className="text-xs px-3 py-2 mb-3 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                  {clearResult}
-                </div>
-              )}
-              {!confirmClear ? (
-                <button
-                  onClick={() => setConfirmClear(true)}
-                  className="w-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 rounded-xl py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  <Icon name="Eraser" size={15} /> Очистить пользователей
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-red-300">Точно? Действие необратимо.</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={runClearTestData}
-                      disabled={clearing}
-                      className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                    >
-                      {clearing ? (
-                        <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Очищаю...</>
-                      ) : (
-                        <>Да, обезличить всех</>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setConfirmClear(false)}
-                      disabled={clearing}
-                      className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
-                    >
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Очистка сообщений */}
-              <div className="mt-3 pt-3 border-t border-red-500/20">
-                {clearMsgsResult && (
-                  <div className="text-xs px-3 py-2 mb-2 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                    {clearMsgsResult}
-                  </div>
-                )}
-                {!confirmClearMsgs ? (
-                  <button
-                    onClick={() => setConfirmClearMsgs(true)}
-                    className="w-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 rounded-xl py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Icon name="MessageSquareX" size={15} fallback="Trash2" /> Очистить все сообщения
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-red-300">Удалит все сообщения у всех чатов. Точно?</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={runClearAllMessages}
-                        disabled={clearingMsgs}
-                        className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                      >
-                        {clearingMsgs ? (
-                          <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Очищаю...</>
-                        ) : (
-                          <>Да, удалить все сообщения</>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => setConfirmClearMsgs(false)}
-                        disabled={clearingMsgs}
-                        className="px-4 glass rounded-xl text-sm font-semibold disabled:opacity-50"
-                      >
-                        Отмена
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── USERS ── */}
-        {tab === "users" && (
-          <div className="space-y-3 animate-fade-in">
-            <div className="flex items-center gap-2 glass rounded-xl px-3 py-2">
-              <Icon name="Search" size={15} className="text-muted-foreground" />
-              <input
-                value={search}
-                onChange={e => { setSearch(e.target.value); loadUsers(e.target.value); }}
-                placeholder="Поиск по имени или номеру..."
-                className="flex-1 bg-transparent outline-none text-sm"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground px-1">Найдено: {usersTotal}</p>
-
-            {loading && <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" /></div>}
-
-            {users.map(u => (
-              <div key={u.id} className="w-full glass rounded-2xl p-4 flex items-center gap-3 hover:bg-white/8 transition-colors group">
-                <button onClick={() => openUser(u)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                  <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center font-bold text-white text-base flex-shrink-0 ${u.online ? "bg-gradient-to-br from-emerald-500 to-teal-500" : "bg-gradient-to-br from-violet-500 to-indigo-500"}`}>
-                    {u.avatar_url
-                      ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
-                      : u.name[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm truncate">{u.name}</span>
-                      {u.online && <span className="w-2 h-2 bg-emerald-400 rounded-full flex-shrink-0" />}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{u.phone}</p>
-                  </div>
-                </button>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-[10px] text-muted-foreground">#{u.id}</p>
-                  <p className="text-[10px] text-muted-foreground">{fmtTime(u.last_seen || 0)}</p>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); deleteUser(u.id); }}
-                  title="Удалить пользователя"
-                  className="p-2 rounded-xl hover:bg-red-500/15 text-red-400 transition-colors flex-shrink-0"
-                >
-                  <Icon name="Trash2" size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── SUPPORT TICKETS ── */}
-        {tab === "support" && (
-          <div className="space-y-2 animate-fade-in">
-            <div className="flex gap-1 glass rounded-xl p-1">
-              {(["open", "all", "closed"] as const).map(s => (
-                <button
-                  key={s}
-                  onClick={() => { setTicketStatusFilter(s); loadTickets(s); }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${ticketStatusFilter === s ? "bg-violet-500/30 text-violet-200" : "text-muted-foreground"}`}
-                >
-                  {s === "open" ? "Открытые" : s === "all" ? "Все" : "Закрытые"}
-                </button>
-              ))}
-            </div>
-            {tickets.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-12">Тикетов нет</p>
-            ) : tickets.map(t => (
-              <button
-                key={t.id}
-                onClick={() => { setActiveTicket(t); loadTicketMessages(t.id); }}
-                className="w-full glass rounded-2xl p-3 flex items-start gap-3 hover:bg-white/8 transition text-left"
-              >
-                <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
-                  {t.user_avatar ? <img src={t.user_avatar} alt={t.user_name} className="w-full h-full object-cover" /> : (t.user_name || "?")[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm truncate flex-1">{t.user_name || `User #${t.user_id}`}</span>
-                    {t.unread > 0 && (
-                      <span className="px-1.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{t.unread}</span>
-                    )}
-                    {t.status === "closed" && <span className="text-[10px] bg-zinc-500/20 text-zinc-300 px-2 py-0.5 rounded-full">закрыт</span>}
-                  </div>
-                  <p className="text-[11px] text-violet-400 font-medium truncate">{t.subject}</p>
-                  <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{t.last_text}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{fmtTime(t.last_message_at)}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+        <AdminSupportTab
+          visible={tab === "support"}
+          tickets={tickets}
+          ticketStatusFilter={ticketStatusFilter}
+          onChangeStatusFilter={handleChangeTicketStatusFilter}
+          onOpenTicket={handleOpenTicket}
+          activeTicket={activeTicket}
+          ticketMessages={ticketMessages}
+          ticketReply={ticketReply}
+          setTicketReply={setTicketReply}
+          ticketSending={ticketSending}
+          onCloseActiveTicket={handleCloseActiveTicket}
+          onCloseTicket={handleCloseTicket}
+          onSendReply={handleSendReply}
+        />
       </div>
-
-      {/* Active ticket modal */}
-      {activeTicket && (
-        <div className="fixed inset-0 z-[230] bg-black/60 backdrop-blur flex items-end" onClick={() => { setActiveTicket(null); setTicketMessages([]); }}>
-          <div className="w-full max-w-lg mx-auto glass-strong rounded-t-3xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-2 p-4 border-b border-white/5">
-              <button onClick={() => { setActiveTicket(null); setTicketMessages([]); }} className="p-2 rounded-xl hover:bg-white/8">
-                <Icon name="X" size={18} />
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm truncate">{activeTicket.user_name || `User #${activeTicket.user_id}`}</div>
-                <div className="text-[11px] text-muted-foreground truncate">{activeTicket.subject} · {activeTicket.user_phone}</div>
-              </div>
-              {activeTicket.status === "open" && (
-                <button
-                  onClick={async () => {
-                    await adminApi("support_admin_close", { ticket_id: activeTicket.id }, token);
-                    setActiveTicket({ ...activeTicket, status: "closed" });
-                    loadTickets(ticketStatusFilter);
-                  }}
-                  className="px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
-                >
-                  Закрыть
-                </button>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {ticketMessages.map(m => (
-                <div key={m.id} className={`flex ${m.is_admin ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${m.is_admin ? "grad-primary text-white rounded-tr-md" : "bg-white/5 text-foreground rounded-tl-md"}`}>
-                    {!m.is_admin && <div className="text-[10px] font-bold text-muted-foreground mb-0.5">{activeTicket.user_name}</div>}
-                    {m.is_admin && <div className="text-[10px] font-bold text-white/70 mb-0.5">Поддержка (вы)</div>}
-                    <p className="whitespace-pre-wrap break-words">{m.text}</p>
-                    <div className={`text-[10px] mt-1 ${m.is_admin ? "text-white/70" : "text-muted-foreground"}`}>
-                      {new Date(m.created_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {activeTicket.status === "open" ? (
-              <div className="p-3 flex items-center gap-2 border-t border-white/5">
-                <input
-                  value={ticketReply}
-                  onChange={e => setTicketReply(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!ticketReply.trim() || ticketSending) return;
-                    const text = ticketReply.trim();
-                    setTicketReply("");
-                    setTicketSending(true);
-                    adminApi("support_admin_reply", { ticket_id: activeTicket.id, text }, token).then(() => {
-                      setTicketSending(false);
-                      loadTicketMessages(activeTicket.id);
-                    });
-                  } }}
-                  placeholder="Ответ пользователю..."
-                  className="flex-1 glass rounded-xl px-3 py-2 text-sm outline-none"
-                />
-                <button
-                  onClick={async () => {
-                    if (!ticketReply.trim() || ticketSending) return;
-                    const text = ticketReply.trim();
-                    setTicketReply("");
-                    setTicketSending(true);
-                    await adminApi("support_admin_reply", { ticket_id: activeTicket.id, text }, token);
-                    setTicketSending(false);
-                    loadTicketMessages(activeTicket.id);
-                  }}
-                  disabled={!ticketReply.trim() || ticketSending}
-                  className="w-10 h-10 grad-primary rounded-xl text-white flex items-center justify-center disabled:opacity-50"
-                >
-                  {ticketSending
-                    ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : <Icon name="Send" size={14} />}
-                </button>
-              </div>
-            ) : (
-              <div className="p-3 text-center text-xs text-muted-foreground border-t border-white/5">
-                Тикет закрыт
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* User detail modal */}
-      {selectedUser && (
-        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/60 animate-fade-in" onClick={() => setSelectedUser(null)}>
-          <div className="w-full max-w-lg glass-strong rounded-t-3xl p-6 animate-fade-in max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">Пользователь #{selectedUser.id}</h3>
-              <button onClick={() => setSelectedUser(null)} className="p-2 glass rounded-xl text-muted-foreground">
-                <Icon name="X" size={16} />
-              </button>
-            </div>
-
-            {/* Шапка — аватар + имя + статус */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
-                {selectedUser.avatar_url
-                  ? <img src={selectedUser.avatar_url} alt={selectedUser.name} className="w-full h-full object-cover" />
-                  : selectedUser.name[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-base truncate" style={selectedUser.name_color ? { color: selectedUser.name_color } : undefined}>
-                    {selectedUser.name}
-                  </span>
-                  {selectedUser.emoji_status && <span className="text-base">{selectedUser.emoji_status}</span>}
-                  {selectedUser.is_pro && <span className="text-[10px] grad-primary text-white px-2 py-0.5 rounded-full font-bold">PRO</span>}
-                  {selectedUser.is_bot && <span className="text-[10px] bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-full font-bold">BOT</span>}
-                  {selectedUser.online && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">online</span>}
-                  {selectedUser.incognito && <span className="text-[10px] bg-white/10 text-white/70 px-2 py-0.5 rounded-full font-bold">incognito</span>}
-                </div>
-                <p className="text-xs text-muted-foreground font-mono">{selectedUser.phone}</p>
-                {selectedUser.about && <p className="text-xs text-muted-foreground mt-0.5 italic line-clamp-2">«{selectedUser.about}»</p>}
-              </div>
-            </div>
-
-            {/* Метрики */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <DevStat label="Сообщений" value={selectedUser.msg_count ?? 0} />
-              <DevStat label="Чатов" value={selectedUser.chat_count ?? 0} />
-              <DevStat label="Контактов" value={selectedUser.contacts_count ?? 0} />
-              <DevStat label="Историй" value={selectedUser.active_stories ?? 0} />
-              <DevStat label="Заблочил" value={selectedUser.blocks_out ?? 0} />
-              <DevStat label="Заблочен" value={selectedUser.blocks_in ?? 0} />
-            </div>
-
-            {/* Прогресс */}
-            <div className="mb-4 grid grid-cols-3 gap-2">
-              <DevStat label="Уровень" value={selectedUser.level ?? 1} accent="violet" />
-              <DevStat label="XP" value={selectedUser.xp ?? 0} accent="violet" />
-              <DevStat label="Стрик" value={`${selectedUser.daily_streak ?? 0} 🔥`} accent="amber" />
-            </div>
-
-            {/* Кошельки */}
-            <div className="mb-4 grid grid-cols-2 gap-2">
-              <DevStat label="Баланс ₽" value={(selectedUser.wallet_balance ?? 0).toFixed(2)} accent="emerald" />
-              <DevStat label="Молнии ⚡" value={selectedUser.lightning_balance ?? 0} accent="amber" />
-            </div>
-
-            {/* Профиль и приватность */}
-            <div className="space-y-1.5 mb-4 text-xs">
-              <DevRow label="Зарегистрирован" value={fmtDate(selectedUser.created_at)} />
-              <DevRow label="Последний вход" value={fmtTime(selectedUser.last_seen || 0)} />
-              {selectedUser.last_message_at ? <DevRow label="Последнее сообщение" value={fmtTime(selectedUser.last_message_at)} /> : null}
-              {selectedUser.gender && <DevRow label="Пол" value={selectedUser.gender === "male" ? "мужской" : "женский"} />}
-              {selectedUser.birthdate && <DevRow label="Др" value={selectedUser.birthdate} />}
-              <DevRow label="Кто пишет" value={selectedUser.who_can_message ?? "everyone"} />
-              <DevRow label="Кто звонит" value={selectedUser.who_can_call ?? "everyone"} />
-              <DevRow label="Push-устройств" value={selectedUser.push_subscriptions ?? 0} />
-              {selectedUser.pro_until ? <DevRow label="PRO до" value={fmtDate(selectedUser.pro_until)} /> : null}
-              <DevRow label="PRO trial использован" value={selectedUser.pro_trial_used ? "да" : "нет"} />
-              {selectedUser.stickers_subscription_until ? <DevRow label="Стикеры до" value={fmtDate(selectedUser.stickers_subscription_until)} /> : null}
-            </div>
-
-            {/* BOT */}
-            {selectedUser.is_bot && (
-              <div className="mb-4 glass rounded-xl p-3 text-xs space-y-1.5">
-                <div className="font-bold text-sky-300 mb-1 flex items-center gap-1.5">
-                  <Icon name="Bot" size={13} /> Бот
-                </div>
-                {selectedUser.bot_username && <DevRow label="@" value={selectedUser.bot_username} />}
-                {selectedUser.bot_owner_id && <DevRow label="Владелец" value={`#${selectedUser.bot_owner_id}`} />}
-                {selectedUser.bot_webhook_url && <DevRow label="Webhook" value={selectedUser.bot_webhook_url} />}
-                {selectedUser.bot_description && <p className="text-muted-foreground italic mt-1">{selectedUser.bot_description}</p>}
-              </div>
-            )}
-
-            {/* Свои боты */}
-            {selectedUser.owned_bots && selectedUser.owned_bots.length > 0 && (
-              <div className="mb-4 glass rounded-xl p-3 text-xs">
-                <div className="font-bold mb-1.5 flex items-center gap-1.5">
-                  <Icon name="Bot" size={13} className="text-sky-300" /> Боты ({selectedUser.owned_bots.length})
-                </div>
-                <div className="space-y-1">
-                  {selectedUser.owned_bots.map(b => (
-                    <div key={b.id} className="flex justify-between">
-                      <span>{b.name}</span>
-                      <span className="text-muted-foreground font-mono">@{b.username}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex gap-2 mb-2">
-              <input
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                className="flex-1 glass rounded-xl px-4 py-2.5 text-sm outline-none"
-                placeholder="Новое имя"
-              />
-              <button onClick={saveUser} disabled={saving} className="px-4 py-2.5 grad-primary rounded-xl text-white text-sm font-bold disabled:opacity-50">
-                {saving ? "..." : "Сохранить"}
-              </button>
-            </div>
-            <button
-              onClick={() => setShowMessage(true)}
-              className="w-full py-2.5 mb-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 rounded-xl text-sm font-semibold hover:bg-violet-500/20 transition-colors"
-            >
-              ✉️ Написать сообщение
-            </button>
-            {showMessage && (
-              <div className="mb-2 animate-fade-in">
-                <textarea
-                  value={messageText}
-                  onChange={e => setMessageText(e.target.value)}
-                  placeholder="Текст сообщения от Nova Dev..."
-                  className="w-full glass rounded-xl px-4 py-2.5 text-sm outline-none resize-none mb-2"
-                  rows={3}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setShowMessage(false); setMessageText(""); }}
-                    className="flex-1 py-2 glass rounded-xl text-sm text-muted-foreground"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!messageText.trim() || !selectedUser) return;
-                      setMessageSending(true);
-                      await adminApi("send_to_user", { user_id: selectedUser.id, text: messageText.trim() }, token);
-                      setMessageSending(false);
-                      setShowMessage(false);
-                      setMessageText("");
-                    }}
-                    disabled={messageSending || !messageText.trim()}
-                    className="flex-1 py-2 grad-primary rounded-xl text-white text-sm font-bold disabled:opacity-50"
-                  >
-                    {messageSending ? "..." : "Отправить"}
-                  </button>
-                </div>
-              </div>
-            )}
-            <button onClick={() => deleteUser(selectedUser.id)}
-              className="w-full py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm font-semibold hover:bg-red-500/20 transition-colors">
-              Удалить пользователя
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm delete dialog */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/70 animate-fade-in">
-          <div className="glass-strong rounded-3xl p-6 w-full max-w-xs mx-4 animate-scale-in">
-            <div className="w-12 h-12 bg-red-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Icon name="Trash2" size={22} className="text-red-400" />
-            </div>
-            <h3 className="font-bold text-center mb-1">Удалить пользователя?</h3>
-            <p className="text-xs text-muted-foreground text-center mb-5">Все сообщения и данные будут удалены. Это действие необратимо.</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-3 glass rounded-xl text-sm font-semibold"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={confirmDeleteUser}
-                className="flex-1 py-3 bg-red-500 rounded-xl text-white text-sm font-bold hover:bg-red-600 transition-colors"
-              >
-                Удалить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-const ACCENT_BG: Record<string, string> = {
-  violet: "bg-violet-500/10 border-violet-500/20 text-violet-200",
-  emerald: "bg-emerald-500/10 border-emerald-500/20 text-emerald-200",
-  amber: "bg-amber-500/10 border-amber-500/20 text-amber-200",
-};
-
-function DevStat({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
-  const cls = accent ? ACCENT_BG[accent] : "glass";
-  return (
-    <div className={`rounded-xl p-2.5 text-center border border-white/5 ${cls}`}>
-      <div className="text-base font-bold leading-tight">{value}</div>
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</div>
-    </div>
-  );
-}
-
-function DevRow({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="flex justify-between gap-2 py-1 border-b border-white/5 last:border-b-0">
-      <span className="text-muted-foreground flex-shrink-0">{label}</span>
-      <span className="font-mono text-right break-all">{value}</span>
-    </div>
-  );
-}
+export default AdminPanel;

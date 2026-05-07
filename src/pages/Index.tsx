@@ -25,6 +25,8 @@ import { RealStoriesBar, RealStoryViewer, type StoryGroup } from "@/components/m
 import ProgressPanel from "@/components/messenger/ProgressPanel";
 import SupportPanel from "@/components/messenger/SupportPanel";
 import { useOverlays } from "@/hooks/useOverlays";
+import { LanguageSwitcher } from "@/components/messenger/LanguageSwitcher";
+import PremiumPanel from "@/components/messenger/PremiumPanel";
 import PrivacyPanel from "@/components/messenger/PrivacyPanel";
 import NotificationsPanel from "@/components/messenger/NotificationsPanel";
 import AppearancePanel from "@/components/messenger/AppearancePanel";
@@ -52,7 +54,7 @@ function mapChat(c: ChatRaw): Chat {
     lastMsg: c.last_message || "Нет сообщений",
     time: c.last_message_at ? new Date(c.last_message_at * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "",
     unread: c.unread || 0,
-    online: Date.now() / 1000 - (c.partner.last_seen || 0) < 300,
+    online: Date.now() / 1000 - (c.partner.last_seen || 0) < 60,
     partner_id: c.partner.id,
     muted: c.muted || false,
     pinned: c.pinned || false,
@@ -140,6 +142,7 @@ export default function Index() {
     showAppearance, setShowAppearance,
     showSavedNotes, setShowSavedNotes,
     showPayments, setShowPayments,
+    showPremium, setShowPremium,
     fundraiserView, setFundraiserView,
   } = overlays;
   const openOverlay = overlays.open;
@@ -496,6 +499,15 @@ export default function Index() {
         />
       )}
 
+      {/* Premium витрина */}
+      {showPremium && currentUser && (
+        <PremiumPanel
+          currentUser={currentUser}
+          onClose={() => setShowPremium(false)}
+          onSubscribe={() => { setShowPremium(false); openOverlay(setShowPro); }}
+        />
+      )}
+
       {/* Admin Panel */}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
 
@@ -549,15 +561,17 @@ export default function Index() {
             <span className="text-lg font-bold grad-text">Nova</span>
           </div>
           <div className="flex items-center gap-1">
-            {/* Nova Pro badge */}
+            {/* Premium badge */}
             <button
-              onClick={() => openOverlay(setShowPro)}
+              onClick={() => openOverlay(setShowPremium)}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", color: "#fff" }}
             >
               <Icon name="Crown" size={12} />
-              Pro
+              Premium
             </button>
+            {/* Язык */}
+            <LanguageSwitcher variant="compact" />
             {/* Скоро */}
             <button
               onClick={() => openOverlay(setShowComingSoon)}
@@ -643,7 +657,14 @@ export default function Index() {
               )}
               <ChatList
                 chats={filterChatsByFolder(
-                  realChats.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())),
+                  realChats.filter(c => {
+                    if (!searchQuery) return true;
+                    const q = searchQuery.toLocaleLowerCase().trim();
+                    if (!q) return true;
+                    const name = (c.name || "").toLocaleLowerCase();
+                    const lastMsg = (c.lastMsg || "").toLocaleLowerCase();
+                    return name.includes(q) || lastMsg.includes(q);
+                  }),
                   chatFolder,
                 )}
                 onSelect={handleSelectChat}
@@ -651,13 +672,21 @@ export default function Index() {
               />
 
               {/* Группы и каналы */}
-              {groups.filter(g => !searchQuery || g.name.toLowerCase().includes(searchQuery.toLowerCase())).length > 0 && (
+              {groups.filter(g => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLocaleLowerCase().trim();
+                return !q || (g.name || "").toLocaleLowerCase().includes(q);
+              }).length > 0 && (
                 <div className="px-4 pt-2 pb-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Группы и каналы</span>
                   </div>
                   <div className="space-y-0.5">
-                    {groups.filter(g => !searchQuery || g.name.toLowerCase().includes(searchQuery.toLowerCase())).map(g => (
+                    {groups.filter(g => {
+                      if (!searchQuery) return true;
+                      const q = searchQuery.toLocaleLowerCase().trim();
+                      return !q || (g.name || "").toLocaleLowerCase().includes(q);
+                    }).map(g => (
                       <button
                         key={g.id}
                         onClick={() => { setSelectedGroup(g); setSelectedChat(null); setShowSidebar(false); }}

@@ -49,16 +49,25 @@ export function GroupCreateModal({ currentUser, open, onClose, onCreated }: Prop
     setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
   const create = async () => {
-    if (!name.trim()) { setError("Введи название"); return; }
+    const trimmedName = name.trim();
+    if (!trimmedName) { setError("Введи название"); return; }
+    if (trimmedName.length < 2) { setError("Минимум 2 символа в названии"); return; }
     setCreating(true); setError("");
     try {
+      const desc = (description || "").trim();
+      const ava = (avatarUrl || "").trim();
       const d = await api("create_group", {
-        name: name.trim(), description, avatar_url: avatarUrl,
-        is_channel: isChannel, member_ids: selected,
+        name: trimmedName,
+        description: desc || null,
+        avatar_url: ava || null,
+        is_channel: isChannel,
+        member_ids: selected,
       }, currentUser.id);
-      if (d.group) { onCreated(d.group); onClose(); }
-      else setError(d.error || "Ошибка создания");
-    } catch { setError("Ошибка соединения"); } finally { setCreating(false); }
+      if (d && d.group) { onCreated(d.group); onClose(); }
+      else setError((d && d.error) || "Ошибка создания группы");
+    } catch (e) {
+      setError((e as Error)?.message || "Ошибка соединения");
+    } finally { setCreating(false); }
   };
 
   const filtered = search.trim()

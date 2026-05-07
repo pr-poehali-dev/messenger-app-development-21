@@ -88,7 +88,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
         {!query && <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold">Все пользователи</div>}
         {results.map((u, i) => (
           <button key={u.id} onClick={() => onStartChat(u.id)} className={`w-full flex items-center gap-3 p-3 glass rounded-2xl hover:bg-white/8 transition-all animate-fade-in stagger-${Math.min(i + 1, 5)}`}>
-            <Avatar label={u.name[0]?.toUpperCase() || "?"} id={u.id} online={currentUser.id !== u.id && Date.now() / 1000 - (u.last_seen || 0) < 300} />
+            <Avatar label={u.name[0]?.toUpperCase() || "?"} id={u.id} online={currentUser.id !== u.id && Date.now() / 1000 - (u.last_seen || 0) < 60} />
             <div className="text-left">
               <div className="font-semibold text-sm">{u.name}</div>
               <div className="text-xs text-muted-foreground">{u.phone}</div>

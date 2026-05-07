@@ -164,10 +164,21 @@ export function ChatWindow({
         if (hasIncoming) playMessageSound();
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id));
-          const newMsgs = mapped.filter(m => !existingIds.has(m.id));
+          // Дополнительная дедупликация: если это наше сообщение (out) с тем же текстом и создано
+          // в пределах 5 секунд от уже существующего — считаем дубликатом.
+          const isDuplicate = (m: Message) => {
+            if (existingIds.has(m.id)) return true;
+            if (!m.out) return false;
+            return prev.some(pm =>
+              pm.out &&
+              pm.text === m.text &&
+              Math.abs((pm.created_at || 0) - (m.created_at || 0)) < 5
+            );
+          };
+          const newMsgs = mapped.filter(m => !isDuplicate(m));
           const updated = prev.map(pm => {
             const fresh = mapped.find(m => m.id === pm.id);
-            return fresh ? { ...pm, reactions: fresh.reactions } : pm;
+            return fresh ? { ...pm, reactions: fresh.reactions, read: fresh.read || pm.read } : pm;
           });
           return newMsgs.length > 0 ? [...updated, ...newMsgs] : updated;
         });

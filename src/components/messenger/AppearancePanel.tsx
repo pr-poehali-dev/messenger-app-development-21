@@ -5,23 +5,29 @@ import { applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_ME
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 
 const ACCENT_COLORS = [
-  { id: "violet", hex: "#8b5cf6", name: "Фиолет" },
-  { id: "blue", hex: "#3b82f6", name: "Синий" },
-  { id: "cyan", hex: "#06b6d4", name: "Бирюза" },
-  { id: "emerald", hex: "#10b981", name: "Изумруд" },
-  { id: "amber", hex: "#f59e0b", name: "Янтарь" },
-  { id: "rose", hex: "#f43f5e", name: "Роза" },
-  { id: "pink", hex: "#ec4899", name: "Пинк" },
-  { id: "indigo", hex: "#6366f1", name: "Индиго" },
+  { id: "violet", hex: "#8b5cf6" },
+  { id: "blue", hex: "#3b82f6" },
+  { id: "cyan", hex: "#06b6d4" },
+  { id: "emerald", hex: "#10b981" },
+  { id: "amber", hex: "#f59e0b" },
+  { id: "rose", hex: "#f43f5e" },
+  { id: "pink", hex: "#ec4899" },
+  { id: "indigo", hex: "#6366f1" },
 ];
 
 const WALLPAPERS = [
-  { id: "default", name: "По умолчанию", bg: "" },
+  { id: "default", name: "Авто", bg: "" },
   { id: "stars", name: "Звёзды", bg: "radial-gradient(circle at 20% 30%, #1a1a3a 0%, #0d0d1a 60%)" },
   { id: "aurora", name: "Аврора", bg: "linear-gradient(135deg, #064e3b 0%, #312e81 50%, #4c1d95 100%)" },
   { id: "sunset", name: "Закат", bg: "linear-gradient(180deg, #7c2d12 0%, #be185d 70%, #1e1b4b 100%)" },
   { id: "ocean", name: "Океан", bg: "linear-gradient(180deg, #0c4a6e 0%, #082f49 100%)" },
   { id: "rose", name: "Роза", bg: "linear-gradient(135deg, #831843 0%, #500724 100%)" },
+];
+
+const BUBBLES = [
+  { id: "default", name: "Обычный" },
+  { id: "rounded", name: "Округлый" },
+  { id: "minimal", name: "Минимал" },
 ];
 
 export default function AppearancePanel({
@@ -42,7 +48,11 @@ export default function AppearancePanel({
     onUserUpdate({ ...currentUser, theme_id: id } as User);
   };
 
-  const setF = (n: number) => { setFont(n); applyFontSize(n); api("update_user_settings", { font_size: n }, currentUser.id); };
+  const setF = (n: number) => {
+    setFont(n);
+    applyFontSize(n);
+    api("update_user_settings", { font_size: n }, currentUser.id);
+  };
 
   const setA = (id: string) => {
     setAccent(id);
@@ -65,77 +75,118 @@ export default function AppearancePanel({
 
   return (
     <div className="fixed inset-0 z-[260] bg-[#0d0d1a] flex flex-col animate-fade-in">
-      <div className="flex items-center gap-2 px-3 py-2 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
-        <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8"><Icon name="ChevronLeft" size={20} /></button>
-        <h2 className="font-bold flex-1">Оформление</h2>
+      {/* Минималистичный header */}
+      <div className="flex items-center gap-2 px-2 py-2 border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/5 transition" aria-label="Назад">
+          <Icon name="ChevronLeft" size={18} />
+        </button>
+        <h2 className="text-sm font-semibold flex-1">Оформление</h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Тема</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {THEMES_META.map(t => (
-              <button key={t.id} onClick={() => setT(t.id, t.pro)} className={`relative h-20 rounded-2xl bg-gradient-to-br ${t.preview} border-2 ${theme === t.id ? "border-violet-400" : "border-transparent"}`}>
-                {t.pro && !isPro && <span className="absolute top-1 right-1 text-[9px] bg-amber-500 text-black font-bold px-1.5 py-0.5 rounded-full">PRO</span>}
-                <span className="absolute bottom-1 left-2 text-[10px] font-bold text-white drop-shadow">{t.name}</span>
-                {theme === t.id && (
-                  <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center">
-                    <Icon name="Check" size={11} className="text-white" />
-                  </div>
-                )}
-              </button>
-            ))}
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-5 max-w-md mx-auto w-full">
+        {/* Тема */}
+        <Section title="Тема">
+          <div className="grid grid-cols-4 gap-1.5">
+            {THEMES_META.map(t => {
+              const active = theme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setT(t.id, t.pro)}
+                  className={`relative aspect-square rounded-xl bg-gradient-to-br ${t.preview} transition ${active ? "ring-2 ring-violet-400" : "ring-1 ring-white/5 hover:ring-white/15"}`}
+                  title={t.name}
+                >
+                  {t.pro && !isPro && (
+                    <span className="absolute top-0.5 right-0.5 text-[8px] bg-amber-500 text-black font-bold px-1 py-px rounded">PRO</span>
+                  )}
+                  {active && (
+                    <Icon name="Check" size={12} className="absolute bottom-0.5 right-0.5 text-white drop-shadow" />
+                  )}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Акцентный цвет</h3>
-          <div className="grid grid-cols-4 gap-2">
-            {ACCENT_COLORS.map(c => (
-              <button key={c.id} onClick={() => setA(c.id)} className={`h-14 rounded-2xl flex items-center justify-center border-2 ${accent === c.id ? "border-white" : "border-transparent"}`} style={{ background: c.hex }}>
-                {accent === c.id && <Icon name="Check" size={16} className="text-white" />}
-              </button>
-            ))}
+        {/* Акцент */}
+        <Section title="Акцент">
+          <div className="flex flex-wrap gap-2">
+            {ACCENT_COLORS.map(c => {
+              const active = accent === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setA(c.id)}
+                  className={`w-8 h-8 rounded-full transition ${active ? "ring-2 ring-white/80 ring-offset-2 ring-offset-[#0d0d1a]" : "hover:scale-110"}`}
+                  style={{ background: c.hex }}
+                  aria-label={c.id}
+                />
+              );
+            })}
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Размер шрифта</h3>
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-center gap-3">
-              <Icon name="Type" size={14} className="text-muted-foreground" />
-              <input type="range" min={12} max={20} value={font} onChange={e => setF(parseInt(e.target.value, 10))} className="flex-1 accent-violet-500" />
-              <span className="text-sm font-mono w-8 text-right">{font}</span>
-            </div>
+        {/* Размер шрифта */}
+        <Section title="Шрифт">
+          <div className="flex items-center gap-3 px-1">
+            <span className="text-xs text-muted-foreground">A</span>
+            <input
+              type="range" min={12} max={20} value={font}
+              onChange={e => setF(parseInt(e.target.value, 10))}
+              className="flex-1 accent-violet-500"
+            />
+            <span className="text-base font-semibold">A</span>
+            <span className="text-xs text-muted-foreground w-7 text-right tabular-nums">{font}</span>
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Обои чата</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {WALLPAPERS.map(w => (
-              <button key={w.id} onClick={() => setWp(w.id)} className={`h-20 rounded-2xl border-2 ${wallpaper === w.id ? "border-violet-400" : "border-transparent"} relative overflow-hidden`} style={{ background: w.bg || "linear-gradient(135deg, #1f1f3a, #0d0d1a)" }}>
-                <span className="absolute bottom-1 left-2 text-[10px] font-bold text-white drop-shadow">{w.name}</span>
-              </button>
-            ))}
+        {/* Обои */}
+        <Section title="Обои чата">
+          <div className="grid grid-cols-3 gap-1.5">
+            {WALLPAPERS.map(w => {
+              const active = wallpaper === w.id;
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => setWp(w.id)}
+                  className={`relative h-14 rounded-lg overflow-hidden transition ${active ? "ring-2 ring-violet-400" : "ring-1 ring-white/5 hover:ring-white/15"}`}
+                  style={{ background: w.bg || "linear-gradient(135deg, #1f1f3a, #0d0d1a)" }}
+                >
+                  <span className="absolute bottom-0.5 left-1.5 text-[10px] font-medium text-white/90">{w.name}</span>
+                  {active && <Icon name="Check" size={12} className="absolute top-1 right-1 text-white drop-shadow" />}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Стиль пузырей</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: "default", name: "Обычный" },
-              { id: "rounded", name: "Округлый" },
-              { id: "minimal", name: "Минимал" },
-            ].map(b => (
-              <button key={b.id} onClick={() => setBs(b.id)} className={`py-3 rounded-2xl text-xs font-semibold ${bubbleStyle === b.id ? "grad-primary text-white" : "glass text-muted-foreground"}`}>
-                {b.name}
-              </button>
-            ))}
+        {/* Пузыри */}
+        <Section title="Сообщения">
+          <div className="flex gap-1.5">
+            {BUBBLES.map(b => {
+              const active = bubbleStyle === b.id;
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => setBs(b.id)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${active ? "bg-violet-500 text-white" : "bg-white/5 text-muted-foreground hover:bg-white/8"}`}
+                >
+                  {b.name}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </Section>
       </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-2 px-1">{title}</div>
+      {children}
     </div>
   );
 }
