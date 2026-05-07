@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { type User, api } from "@/lib/api";
 import { applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_META, type ThemeId } from "@/lib/theme";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { useT } from "@/hooks/useT";
 
 const ACCENT_COLORS = [
   { id: "violet", hex: "#8b5cf6" },
@@ -34,6 +35,7 @@ export default function AppearancePanel({
   currentUser, onClose, onUserUpdate,
 }: { currentUser: User; onClose: () => void; onUserUpdate: (u: User) => void; }) {
   useEdgeSwipeBack(onClose);
+  const { t: tr } = useT();
   const isPro = !!currentUser.pro_until && currentUser.pro_until > Math.floor(Date.now() / 1000);
   const [theme, setTheme] = useState<ThemeId>(getStoredTheme());
   const [font, setFont] = useState<number>(getStoredFontSize());
@@ -77,15 +79,15 @@ export default function AppearancePanel({
     <div className="fixed inset-0 z-[260] bg-background flex flex-col animate-fade-in">
       {/* Минималистичный header */}
       <div className="flex items-center gap-2 px-2 py-2 border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
-        <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/5 transition" aria-label="Назад">
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/5 transition" aria-label={tr("common.back")}>
           <Icon name="ChevronLeft" size={18} />
         </button>
-        <h2 className="text-sm font-semibold flex-1">Оформление</h2>
+        <h2 className="text-sm font-semibold flex-1">{tr("appearance.title")}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-5 max-w-md mx-auto w-full">
         {/* Тема */}
-        <Section title="Тема">
+        <Section title={tr("appearance.theme")}>
           <div className="grid grid-cols-4 gap-1.5">
             {THEMES_META.map(t => {
               const active = theme === t.id;
@@ -127,7 +129,7 @@ export default function AppearancePanel({
         </Section>
 
         {/* Размер шрифта */}
-        <Section title="Шрифт">
+        <Section title={tr("appearance.fontSize")}>
           <div className="flex items-center gap-3 px-1">
             <span className="text-xs text-muted-foreground">A</span>
             <input

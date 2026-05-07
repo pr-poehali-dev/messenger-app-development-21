@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, type User } from "@/lib/api";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { useT } from "@/hooks/useT";
 
 interface Note {
   id: number;
@@ -16,6 +17,7 @@ export default function SavedNotesPanel({
   currentUser, onClose,
 }: { currentUser: User; onClose: () => void; }) {
   useEdgeSwipeBack(onClose);
+  const { t } = useT();
   const [notes, setNotes] = useState<Note[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +57,7 @@ export default function SavedNotesPanel({
       <div className="flex items-center gap-2 px-3 py-2 glass-strong border-b border-white/5" style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}>
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8"><Icon name="ChevronLeft" size={20} /></button>
         <Icon name="Bookmark" size={18} className="text-violet-400" />
-        <h2 className="font-bold flex-1">Избранное</h2>
+        <h2 className="font-bold flex-1">{t("nav.saved")}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">

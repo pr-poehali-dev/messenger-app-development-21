@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, type User, type Group } from "@/lib/api";
+import { useT } from "@/hooks/useT";
 
 interface ChannelItem {
   id: number;
@@ -22,6 +23,7 @@ export default function JoinChannelModal({
   onClose: () => void;
   onJoined: (group: Group) => void;
 }) {
+  const { t: tr } = useT();
   const [tab, setTab] = useState<"search" | "invite">("search");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ChannelItem[]>([]);
@@ -99,7 +101,7 @@ export default function JoinChannelModal({
             onClick={() => setTab("search")}
             className={`flex-1 py-2 rounded-lg text-xs font-semibold transition ${tab === "search" ? "bg-violet-500/30 text-violet-200" : "text-muted-foreground"}`}
           >
-            <Icon name="Search" size={12} className="inline mr-1" /> Поиск
+            <Icon name="Search" size={12} className="inline mr-1" /> {tr("common.search")}
           </button>
           <button
             onClick={() => setTab("invite")}
@@ -121,9 +123,9 @@ export default function JoinChannelModal({
                 className="flex-1 bg-transparent outline-none text-sm"
               />
             </div>
-            {loading && <div className="text-center text-xs text-muted-foreground py-3">Ищу…</div>}
+            {loading && <div className="text-center text-xs text-muted-foreground py-3">{tr("common.loading")}</div>}
             {!loading && q.trim().length > 0 && items.length === 0 && (
-              <p className="text-center text-sm text-muted-foreground py-6">Ничего не нашлось</p>
+              <p className="text-center text-sm text-muted-foreground py-6">{tr("search.empty")}</p>
             )}
             <div className="space-y-2">
               {items.map(it => (

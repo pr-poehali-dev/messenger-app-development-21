@@ -5,6 +5,7 @@ import { Avatar } from "@/components/messenger/ChatComponents";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import { applyTheme, applyFontSize, getStoredTheme, getStoredFontSize, THEMES_META, type ThemeId } from "@/lib/theme";
 import { BirthdayPickerModal } from "@/components/messenger/BirthdayPickerModal";
+import { useT } from "@/hooks/useT";
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const MAX_ABOUT_LEN = 200;
@@ -13,6 +14,7 @@ const MAX_ABOUT_LEN = 200;
 
 export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users: User[]; currentUser: User; onStartChat: (id: number) => void; onBack?: () => void }) {
   useEdgeSwipeBack(onBack);
+  const { t: tr } = useT();
   const [query, setQuery] = useState("");
   const [bots, setBots] = useState<{ id: number; name: string; username: string; description?: string | null; avatar_url?: string | null }[]>([]);
   const results = users.filter(u => !query || u.name.toLowerCase().includes(query.toLowerCase()) || u.phone.includes(query));
@@ -60,7 +62,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
           <>
             <div className="text-xs text-muted-foreground px-2 pb-2 uppercase tracking-widest font-semibold flex items-center gap-1.5">
               <Icon name="Bot" size={12} className="text-cyan-400" />
-              Боты
+              {tr("nav.bots")}
             </div>
             {bots.map(b => (
               <button
@@ -120,6 +122,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots, onOpenSupport, onOpenPrivacy, onOpenNotifications, onOpenAppearance, onOpenSavedNotes, onOpenPayments }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void; onOpenSupport?: () => void; onOpenPrivacy?: () => void; onOpenNotifications?: () => void; onOpenAppearance?: () => void; onOpenSavedNotes?: () => void; onOpenPayments?: () => void; }) {
   useEdgeSwipeBack(onBack);
+  const { t: tr } = useT();
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
   const [saving, setSaving] = useState(false);
@@ -436,7 +439,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
 
       <div className="grid grid-cols-3 gap-2 px-4 mb-4">
         {[
-          { label: "Контакты", value: String(contactsCount), icon: "Users" },
+          { label: tr("profile.contacts"), value: String(contactsCount), icon: "Users" },
           { label: "Чаты", value: String(chatsCount), icon: "MessageCircle" },
           { label: "Уровень", value: String(currentUser.level || 1), icon: "Trophy", action: onOpenProgress },
         ].map((s, i) => (
@@ -530,7 +533,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
       )}
 
       <div className="glass rounded-2xl p-4 border border-violet-500/20 mx-4 mb-4">
-        <p className="text-sm font-semibold mb-1">Пригласить друзей</p>
+        <p className="text-sm font-semibold mb-1">{tr("profile.invite")}</p>
         <p className="text-xs text-muted-foreground mb-3">Поделитесь ссылкой — друг скачает Nova и вы сразу найдёте друг друга</p>
         <button
           onClick={() => {
@@ -543,21 +546,21 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
           }}
           className="w-full py-3 grad-primary rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 glow-primary"
         >
-          <Icon name="Share2" size={16} /> Поделиться ссылкой
+          <Icon name="Share2" size={16} /> {tr("profile.shareLink")}
         </button>
       </div>
 
       <div className="px-4 space-y-2 mb-6" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom) + 80px)" }}>
         {[
-          { icon: "Edit3", label: "Редактировать профиль", sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
+          { icon: "Edit3", label: tr("profile.editProfile"), sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
           ...(onOpenProSettings ? [{ icon: "Sparkles", label: "Персонализация", sub: "Эмодзи-статус, цвет, инкогнито", action: onOpenProSettings }] : []),
-          ...(onOpenProgress ? [{ icon: "Trophy", label: "Прокачка", sub: `${currentUser.level ? `Уровень ${currentUser.level} · ${currentUser.xp || 0} XP` : "Уровни, бейджи, топ"}`, action: onOpenProgress }] : []),
-          ...(onOpenSavedNotes ? [{ icon: "Bookmark", label: "Избранное", sub: "Заметки, сохранёнки, идеи", action: onOpenSavedNotes }] : []),
+          ...(onOpenProgress ? [{ icon: "Trophy", label: tr("nav.progress"), sub: `${currentUser.level ? `Уровень ${currentUser.level} · ${currentUser.xp || 0} XP` : "Уровни, бейджи, топ"}`, action: onOpenProgress }] : []),
+          ...(onOpenSavedNotes ? [{ icon: "Bookmark", label: tr("nav.saved"), sub: "Заметки, сохранёнки, идеи", action: onOpenSavedNotes }] : []),
           ...(onOpenPayments ? [{ icon: "ReceiptText", label: "Счета и платежи", sub: "Выставляй и оплачивай", action: onOpenPayments }] : []),
-          ...(onOpenNotifications ? [{ icon: "Bell", label: "Уведомления", sub: "Звуки, вибрация, тихие часы", action: onOpenNotifications }] : []),
+          ...(onOpenNotifications ? [{ icon: "Bell", label: tr("nav.notifications"), sub: "Звуки, вибрация, тихие часы", action: onOpenNotifications }] : []),
           ...(onOpenPrivacy ? [{ icon: "Shield", label: "Безопасность и приватность", sub: "PIN, кто видит, сессии", action: onOpenPrivacy }] : []),
           { icon: "Lock", label: "Шифрование", sub: "Исчезающие сообщения, E2E", action: onSettings },
-          ...(onOpenAppearance ? [{ icon: "Palette", label: "Оформление", sub: "Темы, обои, шрифт", action: onOpenAppearance }] : []),
+          ...(onOpenAppearance ? [{ icon: "Palette", label: tr("nav.appearance"), sub: "Темы, обои, шрифт", action: onOpenAppearance }] : []),
         ].map((item, i) => (
           <button
             key={item.icon}
@@ -580,7 +583,7 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
         <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-4 animate-fade-in" onClick={() => setShowAppearance(false)}>
           <div className="glass-strong rounded-2xl p-5 w-full max-w-md animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-base">Оформление</h3>
+              <h3 className="font-semibold text-base">{tr("nav.appearance")}</h3>
               <button onClick={() => setShowAppearance(false)} className="p-1.5 rounded-lg hover:bg-white/8">
                 <Icon name="X" size={16} />
               </button>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, type User } from "@/lib/api";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { useT } from "@/hooks/useT";
 
 export default function NotificationsPanel({
   currentUser, onClose, onUserUpdate,
@@ -9,6 +10,7 @@ export default function NotificationsPanel({
   currentUser: User; onClose: () => void; onUserUpdate: (u: User) => void;
 }) {
   useEdgeSwipeBack(onClose);
+  const { t } = useT();
   const [msg, setMsg] = useState<boolean>(currentUser.notify_messages ?? true);
   const [grp, setGrp] = useState<boolean>(currentUser.notify_groups ?? true);
   const [calls, setCalls] = useState<boolean>(currentUser.notify_calls ?? true);
@@ -44,7 +46,7 @@ export default function NotificationsPanel({
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8">
           <Icon name="ChevronLeft" size={20} />
         </button>
-        <h2 className="font-bold flex-1">Уведомления</h2>
+        <h2 className="font-bold flex-1">{t("nav.notifications")}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

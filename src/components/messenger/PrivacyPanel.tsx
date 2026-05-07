@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, type User } from "@/lib/api";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { useT } from "@/hooks/useT";
 
 type Vis = "everyone" | "contacts" | "nobody";
 
@@ -21,6 +22,7 @@ export default function PrivacyPanel({
   onUserUpdate: (u: User) => void;
 }) {
   useEdgeSwipeBack(onClose);
+  const { t } = useT();
 
   const [readReceipts, setReadReceipts] = useState<boolean>(currentUser.read_receipts_enabled ?? true);
   const [lastSeen, setLastSeen] = useState<Vis>((currentUser.last_seen_visibility as Vis) || "everyone");
@@ -100,7 +102,7 @@ export default function PrivacyPanel({
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/8">
           <Icon name="ChevronLeft" size={20} />
         </button>
-        <h2 className="font-bold flex-1">Безопасность и приватность</h2>
+        <h2 className="font-bold flex-1">{t("nav.privacy")}</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

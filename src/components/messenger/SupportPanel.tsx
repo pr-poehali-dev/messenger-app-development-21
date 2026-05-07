@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, type User } from "@/lib/api";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
+import { useT } from "@/hooks/useT";
 
 interface Ticket {
   id: number;
@@ -33,6 +34,7 @@ export default function SupportPanel({
   onClose: () => void;
 }) {
   useEdgeSwipeBack(onClose);
+  const { t: tr } = useT();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<SupportMsg[]>([]);
@@ -175,7 +177,7 @@ export default function SupportPanel({
         </button>
         <div className="flex-1 flex items-center gap-2">
           <Icon name="LifeBuoy" size={18} className="text-violet-400" />
-          <h2 className="font-bold text-base">Поддержка</h2>
+          <h2 className="font-bold text-base">{tr("nav.support")}</h2>
         </div>
         <button
           onClick={() => setShowNew(true)}

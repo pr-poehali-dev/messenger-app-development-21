@@ -2535,13 +2535,52 @@ def handler(event: dict, context) -> dict:
         invite = (body.get("invite_link") or body.get("invite") or "").strip()
         if not invite:
             conn.close(); return err("Укажите invite_link")
-        # принимаем как полный URL, так и просто код
-        code = invite.rsplit("/", 1)[-1].strip()
+        # Универсальный парсинг: поддерживаем форматы
+        #   abc123                                  → "abc123"
+        #   nova.app/join/abc123                    → "abc123"
+        #   https://nova.app/join/abc123?ref=x      → "abc123"
+        #   https://t.me/+abc123                    → "abc123"
+        #   @abc123                                 → "abc123"
+        #   12345 (числовой id группы)              → ищем по groups.id
+        raw = invite
+        # отрезаем query/hash
+        for sep in ("?", "#"):
+            if sep in raw:
+                raw = raw.split(sep, 1)[0]
+        # отрезаем протокол и домен — берём последний сегмент пути
+        code = raw.rsplit("/", 1)[-1].strip()
+        # убираем префиксы @ и + (telegram-like)
+        code = code.lstrip("@+").strip()
+        if not code:
+            conn.close(); return err("Некорректная ссылка-приглашение")
+        rr = None
+        # 1) точное совпадение invite_link
         cur.execute(
-            f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE invite_link=%s OR invite_link LIKE %s",
-            (code, f"%{code}")
+            f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE invite_link=%s LIMIT 1",
+            (code,)
         )
         rr = cur.fetchone()
+        # 2) по числовому id группы (как fallback)
+        if not rr and code.isdigit():
+            cur.execute(
+                f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE id=%s LIMIT 1",
+                (int(code),)
+            )
+            rr = cur.fetchone()
+        # 3) по имени группы (без учёта регистра, точное)
+        if not rr:
+            cur.execute(
+                f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE LOWER(name)=LOWER(%s) LIMIT 1",
+                (code,)
+            )
+            rr = cur.fetchone()
+        # 4) частичное совпадение invite_link (на всякий случай для старых форматов)
+        if not rr:
+            cur.execute(
+                f"SELECT id, name, is_channel FROM {SCHEMA}.groups WHERE invite_link LIKE %s LIMIT 1",
+                (f"%{code}",)
+            )
+            rr = cur.fetchone()
         if not rr:
             conn.close(); return err("Приглашение не найдено", 404)
         gid = int(rr[0])
