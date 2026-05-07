@@ -127,7 +127,7 @@ export function SearchPanel({ users, currentUser, onStartChat, onBack }: { users
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots, onOpenSupport }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void; onOpenSupport?: () => void }) {
+export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, chatsCount = 0, onOpenWallet, onOpenPro, onOpenProSettings, onOpenProgress, onOpenBots, onOpenSupport, onOpenPrivacy, onOpenNotifications, onOpenAppearance, onOpenSavedNotes, onOpenPayments }: { onSettings: () => void; currentUser: User; onUserUpdate?: (u: User) => void; onBack?: () => void; chatsCount?: number; onOpenWallet?: () => void; onOpenPro?: () => void; onOpenProSettings?: () => void; onOpenProgress?: () => void; onOpenBots?: () => void; onOpenSupport?: () => void; onOpenPrivacy?: () => void; onOpenNotifications?: () => void; onOpenAppearance?: () => void; onOpenSavedNotes?: () => void; onOpenPayments?: () => void; }) {
   useEdgeSwipeBack(onBack);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
@@ -608,10 +608,12 @@ export function ProfilePanel({ onSettings, currentUser, onUserUpdate, onBack, ch
           { icon: "Edit3", label: "Редактировать профиль", sub: "Имя, фото, статус", action: () => { setEditName(currentUser.name); setEditing(true); window.scrollTo({ top: 0, behavior: "smooth" }); } },
           ...(onOpenProSettings ? [{ icon: "Sparkles", label: "Персонализация", sub: "Эмодзи-статус, цвет, инкогнито", action: onOpenProSettings }] : []),
           ...(onOpenProgress ? [{ icon: "Trophy", label: "Прокачка", sub: `${currentUser.level ? `Уровень ${currentUser.level} · ${currentUser.xp || 0} XP` : "Уровни, бейджи, топ"}`, action: onOpenProgress }] : []),
-          { icon: "Bell", label: "Уведомления", sub: "Звуки, вибрация", action: onSettings },
-          { icon: "Shield", label: "Конфиденциальность", sub: "Блокировки, кто видит", action: onSettings },
-          { icon: "Lock", label: "Шифрование", sub: "Управление ключами E2E", action: onSettings },
-          { icon: "Palette", label: "Оформление", sub: "Тема, шрифт, фон", action: () => setShowAppearance(true) },
+          ...(onOpenSavedNotes ? [{ icon: "Bookmark", label: "Избранное", sub: "Заметки, сохранёнки, идеи", action: onOpenSavedNotes }] : []),
+          ...(onOpenPayments ? [{ icon: "ReceiptText", label: "Счета и платежи", sub: "Выставляй и оплачивай", action: onOpenPayments }] : []),
+          ...(onOpenNotifications ? [{ icon: "Bell", label: "Уведомления", sub: "Звуки, вибрация, тихие часы", action: onOpenNotifications }] : []),
+          ...(onOpenPrivacy ? [{ icon: "Shield", label: "Безопасность и приватность", sub: "PIN, кто видит, сессии", action: onOpenPrivacy }] : []),
+          { icon: "Lock", label: "Шифрование", sub: "Исчезающие сообщения, E2E", action: onSettings },
+          ...(onOpenAppearance ? [{ icon: "Palette", label: "Оформление", sub: "Темы, обои, шрифт", action: onOpenAppearance }] : []),
         ].map((item, i) => (
           <button
             key={item.icon}

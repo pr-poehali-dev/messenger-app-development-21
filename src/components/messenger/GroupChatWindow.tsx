@@ -32,6 +32,8 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
   const [showVideoCircle, setShowVideoCircle] = useState(false);
   const [replyTo, setReplyTo] = useState<GroupMessage | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
+  const [pinned, setPinned] = useState<{ id: number; text: string; sender_name: string; media_type?: string } | null>(null);
+  const [onlyAdminsPost, setOnlyAdminsPost] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -65,7 +67,31 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
     api("get_group_members", { group_id: group.id }, currentUser.id).then(d => {
       if (d.members) setMembers(d.members.filter((m: GroupMember) => m.role !== "removed"));
     });
+    api("get_pinned_group_message", { group_id: group.id }, currentUser.id).then(d => {
+      setPinned(d?.pinned || null);
+    });
+    api("get_group_info", { group_id: group.id }, currentUser.id).then(d => {
+      if (d?.group) setOnlyAdminsPost(!!d.group.only_admins_post);
+    });
   }, [group.id, currentUser.id, loadMessages]);
+
+  const myRole2 = members.find(m => m.id === currentUser.id)?.role;
+  const isAdminHere = myRole2 === "owner" || myRole2 === "admin";
+  const canWrite = !group.is_channel && !onlyAdminsPost || isAdminHere;
+
+  const pinMessage = async (msgId: number) => {
+    setCtxMenu(null);
+    const r = await api("pin_group_message", { group_id: group.id, message_id: msgId }, currentUser.id);
+    if (r?.error) { alert(r.error); return; }
+    const m = messages.find(x => x.id === msgId);
+    if (m) setPinned({ id: m.id, text: m.text || "", sender_name: m.sender_name || "", media_type: m.media_type ?? undefined });
+  };
+
+  const unpinMessage = async () => {
+    const r = await api("unpin_group_message", { group_id: group.id }, currentUser.id);
+    if (r?.error) { alert(r.error); return; }
+    setPinned(null);
+  };
 
   useEffect(() => {
     pollRef.current = setInterval(() => loadMessages(lastSince), POLL_MS);
@@ -178,6 +204,25 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
           <Icon name="Info" size={18} />
         </button>
       </div>
+
+      {/* Pinned message */}
+      {pinned && (
+        <div className="px-3 py-2 glass-strong border-b border-white/5 flex items-center gap-2 flex-shrink-0">
+          <Icon name="Pin" size={14} className="text-violet-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-violet-400 font-bold">Закреплено</div>
+            <div className="text-xs truncate">
+              {pinned.sender_name && <span className="font-semibold mr-1">{pinned.sender_name}:</span>}
+              {pinned.text || (pinned.media_type ? `[${pinned.media_type}]` : "Сообщение")}
+            </div>
+          </div>
+          {isAdminHere && (
+            <button onClick={unpinMessage} className="p-1.5 rounded-lg hover:bg-white/8 flex-shrink-0">
+              <Icon name="X" size={14} className="text-muted-foreground" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1">

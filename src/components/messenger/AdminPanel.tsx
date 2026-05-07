@@ -394,6 +394,37 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         {tab === "stats" && stats && (
           <div className="space-y-4 animate-fade-in">
 
+            {/* Новые фичи */}
+            <div className="glass rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-bold text-sm">🚀 Активные фичи</span>
+                <span className="text-[10px] text-emerald-400 font-bold">12 LIVE · 2 BETA</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                {[
+                  { name: "Группы и каналы", status: "live" },
+                  { name: "Тех.поддержка", status: "live" },
+                  { name: "Темы оформления", status: "live" },
+                  { name: "PIN-код входа", status: "live" },
+                  { name: "Избранное", status: "new" },
+                  { name: "Счета и платежи", status: "new" },
+                  { name: "Уведомления", status: "live" },
+                  { name: "Bot API", status: "beta" },
+                  { name: "Стикеры", status: "live" },
+                  { name: "Истории 24ч", status: "live" },
+                  { name: "Аудио/видео звонки", status: "live" },
+                  { name: "Исчезающие сообщения", status: "live" },
+                  { name: "Закреп в группах", status: "new" },
+                  { name: "Только админы пишут", status: "new" },
+                ].map(f => (
+                  <div key={f.name} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white/5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${f.status === "live" ? "bg-emerald-400" : f.status === "new" ? "bg-violet-400" : "bg-amber-400"}`} />
+                    <span className="truncate flex-1">{f.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Load card */}
             <div className={`rounded-2xl border p-4 ${LOAD_BG[stats.load.level] || LOAD_BG.low}`}>
               <div className="flex items-center justify-between mb-2">

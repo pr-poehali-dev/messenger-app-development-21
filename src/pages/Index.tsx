@@ -24,6 +24,11 @@ import BotsPanel from "@/components/messenger/BotsPanel";
 import { RealStoriesBar, RealStoryViewer, type StoryGroup } from "@/components/messenger/RealStories";
 import ProgressPanel from "@/components/messenger/ProgressPanel";
 import SupportPanel from "@/components/messenger/SupportPanel";
+import PrivacyPanel from "@/components/messenger/PrivacyPanel";
+import NotificationsPanel from "@/components/messenger/NotificationsPanel";
+import AppearancePanel from "@/components/messenger/AppearancePanel";
+import SavedNotesPanel from "@/components/messenger/SavedNotesPanel";
+import PaymentRequestsPanel from "@/components/messenger/PaymentRequestsPanel";
 import { type Contact } from "@/lib/api";
 
 interface ChatRaw {
@@ -127,6 +132,11 @@ export default function Index() {
   const [showBots, setShowBots] = useState(false);
   const [fundraiserView, setFundraiserView] = useState<{ mode: "create" } | { mode: "view"; id: number } | null>(null);
   const [showSupport, setShowSupport] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showAppearance, setShowAppearance] = useState(false);
+  const [showSavedNotes, setShowSavedNotes] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
 
   // Универсальная функция открытия одной панели — закрывает все остальные
   const closeAllOverlays = () => {
@@ -143,6 +153,11 @@ export default function Index() {
     setShowProgress(false);
     setShowBots(false);
     setShowSupport(false);
+    setShowPrivacy(false);
+    setShowNotifications(false);
+    setShowAppearance(false);
+    setShowSavedNotes(false);
+    setShowPayments(false);
     setFundraiserView(null);
   };
   const openOverlay = (setter: (v: boolean) => void) => {
@@ -432,6 +447,49 @@ export default function Index() {
         <SupportPanel
           currentUser={currentUser}
           onClose={() => setShowSupport(false)}
+        />
+      )}
+
+      {/* Безопасность */}
+      {showPrivacy && currentUser && (
+        <PrivacyPanel
+          currentUser={currentUser}
+          onClose={() => setShowPrivacy(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Уведомления */}
+      {showNotifications && currentUser && (
+        <NotificationsPanel
+          currentUser={currentUser}
+          onClose={() => setShowNotifications(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Оформление */}
+      {showAppearance && currentUser && (
+        <AppearancePanel
+          currentUser={currentUser}
+          onClose={() => setShowAppearance(false)}
+          onUserUpdate={(u) => setCurrentUser(u)}
+        />
+      )}
+
+      {/* Избранное / заметки */}
+      {showSavedNotes && currentUser && (
+        <SavedNotesPanel
+          currentUser={currentUser}
+          onClose={() => setShowSavedNotes(false)}
+        />
+      )}
+
+      {/* Счета */}
+      {showPayments && currentUser && (
+        <PaymentRequestsPanel
+          currentUser={currentUser}
+          onClose={() => setShowPayments(false)}
         />
       )}
 
@@ -784,6 +842,11 @@ export default function Index() {
             onOpenProgress={() => openOverlay(setShowProgress)}
             onOpenBots={() => openOverlay(setShowBots)}
             onOpenSupport={() => openOverlay(setShowSupport)}
+            onOpenPrivacy={() => openOverlay(setShowPrivacy)}
+            onOpenNotifications={() => openOverlay(setShowNotifications)}
+            onOpenAppearance={() => openOverlay(setShowAppearance)}
+            onOpenSavedNotes={() => openOverlay(setShowSavedNotes)}
+            onOpenPayments={() => openOverlay(setShowPayments)}
           />
         ) : view === "settings" ? (
           <SettingsPanel onLogout={logout} onBack={() => setView("profile")} />

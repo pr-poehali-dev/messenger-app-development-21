@@ -177,6 +177,30 @@ export interface User {
   xp?: number;
   level?: number;
   daily_streak?: number;
+  // Безопасность и приватность
+  app_lock_enabled?: boolean;
+  read_receipts_enabled?: boolean;
+  last_seen_visibility?: "everyone" | "contacts" | "nobody";
+  profile_photo_visibility?: "everyone" | "contacts" | "nobody";
+  phone_visibility?: "everyone" | "contacts" | "nobody";
+  // Темы и кастомизация
+  theme_id?: string;
+  accent_color?: string;
+  chat_wallpaper?: string | null;
+  bubble_style?: string;
+  font_size?: number;
+  // Уведомления
+  notify_messages?: boolean;
+  notify_groups?: boolean;
+  notify_calls?: boolean;
+  notify_sound?: string;
+  notify_vibration?: boolean;
+  quiet_hours_from?: number | null;
+  quiet_hours_to?: number | null;
+  // Соц-механики
+  status_text?: string | null;
+  status_until?: number | null;
+  friends_count?: number;
 }
 
 export interface BadgeInfo {

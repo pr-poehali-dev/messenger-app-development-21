@@ -646,6 +646,465 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return ok({"wallpaper": (rr[0] if rr else None)})
 
+    # ── update_user_settings (универсально для большинства полей) ─────────────
+    if action == "update_user_settings":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        ALLOWED = {
+            "theme_id", "accent_color", "chat_wallpaper", "bubble_style", "font_size",
+            "app_lock_enabled", "read_receipts_enabled", "last_seen_visibility",
+            "profile_photo_visibility", "phone_visibility",
+            "status_text", "status_until",
+            "notify_messages", "notify_groups", "notify_calls",
+            "notify_sound", "notify_vibration", "quiet_hours_from", "quiet_hours_to",
+        }
+        fields, vals = [], []
+        for k, v in (body or {}).items():
+            if k in ALLOWED:
+                fields.append(f"{k}=%s"); vals.append(v)
+        if not fields:
+            conn.close(); return err("Нечего обновлять")
+        vals.append(int(user_id))
+        cur.execute(f"UPDATE {SCHEMA}.users SET {', '.join(fields)} WHERE id=%s", vals)
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "set_app_lock":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        pin = (body.get("pin") or "").strip()
+        enabled = bool(body.get("enabled", True))
+        if enabled and (not pin or not pin.isdigit() or len(pin) < 4 or len(pin) > 8):
+            conn.close(); return err("PIN должен быть цифрами (4-8 знаков)")
+        if enabled:
+            cur.execute(
+                f"UPDATE {SCHEMA}.users SET app_lock_pin=%s, app_lock_enabled=TRUE WHERE id=%s",
+                (pin, int(user_id))
+            )
+        else:
+            cur.execute(
+                f"UPDATE {SCHEMA}.users SET app_lock_pin=NULL, app_lock_enabled=FALSE WHERE id=%s",
+                (int(user_id),)
+            )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "verify_app_lock":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        pin = (body.get("pin") or "").strip()
+        cur.execute(f"SELECT app_lock_pin FROM {SCHEMA}.users WHERE id=%s", (int(user_id),))
+        rr = cur.fetchone()
+        conn.close()
+        if not rr or not rr[0]:
+            return ok({"ok": True})
+        return ok({"ok": rr[0] == pin})
+
+    # ── pin_group_message / unpin_group_message ───────────────────────────────
+    if action == "pin_group_message":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+            mid = int(body.get("message_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверные id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (gid, int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] not in ('owner', 'admin'):
+            conn.close(); return err("Только админ может закрепить", 403)
+        cur.execute(f"UPDATE {SCHEMA}.groups SET pinned_message_id=%s WHERE id=%s", (mid, gid))
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "unpin_group_message":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        cur.execute(
+            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
+            (gid, int(user_id))
+        )
+        me = cur.fetchone()
+        if not me or me[0] not in ('owner', 'admin'):
+            conn.close(); return err("Только админ может открепить", 403)
+        cur.execute(f"UPDATE {SCHEMA}.groups SET pinned_message_id=NULL WHERE id=%s", (gid,))
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "get_pinned_group_message":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        cur.execute(
+            f"""SELECT g.pinned_message_id, m.text, u.name, m.media_type
+                FROM {SCHEMA}.groups g
+                LEFT JOIN {SCHEMA}.group_messages m ON m.id=g.pinned_message_id
+                LEFT JOIN {SCHEMA}.users u ON u.id=m.sender_id
+                WHERE g.id=%s""",
+            (gid,)
+        )
+        rr = cur.fetchone()
+        conn.close()
+        if not rr or not rr[0]:
+            return ok({"pinned": None})
+        return ok({"pinned": {"id": rr[0], "text": rr[1] or "", "sender_name": rr[2] or "", "media_type": rr[3]}})
+
+    if action == "set_group_only_admins":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        only_admins = bool(body.get("only_admins_post", False))
+        cur.execute(f"SELECT owner_id FROM {SCHEMA}.groups WHERE id=%s", (gid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Только владелец", 403)
+        cur.execute(f"UPDATE {SCHEMA}.groups SET only_admins_post=%s WHERE id=%s", (only_admins, gid))
+        conn.close()
+        return ok({"ok": True})
+
+    # ── Saved Notes (заметки в избранном) ─────────────────────────────────────
+    if action == "saved_notes_list":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, text, media_url, media_type, pinned, created_at
+                FROM {SCHEMA}.saved_notes
+                WHERE user_id=%s
+                ORDER BY pinned DESC, created_at DESC LIMIT 500""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"notes": [{
+            "id": r[0], "text": r[1], "media_url": r[2], "media_type": r[3],
+            "pinned": bool(r[4]), "created_at": int(r[5]),
+        } for r in rows]})
+
+    if action == "saved_notes_add":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        text = (body.get("text") or "").strip()[:5000]
+        media_url = body.get("media_url")
+        media_type = body.get("media_type")
+        if not text and not media_url:
+            conn.close(); return err("Пустая заметка")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.saved_notes (user_id, text, media_url, media_type, created_at)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+            (int(user_id), text, media_url, media_type, now)
+        )
+        nid = int(cur.fetchone()[0])
+        conn.close()
+        return ok({"id": nid, "created_at": now})
+
+    if action == "saved_notes_pin":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            nid = int(body.get("id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный id")
+        pinned = bool(body.get("pinned", True))
+        cur.execute(
+            f"UPDATE {SCHEMA}.saved_notes SET pinned=%s WHERE id=%s AND user_id=%s",
+            (pinned, nid, int(user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "saved_notes_remove":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            nid = int(body.get("id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный id")
+        cur.execute(
+            f"DELETE FROM {SCHEMA}.saved_notes WHERE id=%s AND user_id=%s",
+            (nid, int(user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── Drafts ────────────────────────────────────────────────────────────────
+    if action == "draft_save":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        text = (body.get("text") or "").strip()[:4000]
+        chat_id = body.get("chat_id")
+        group_id = body.get("group_id")
+        cid = int(chat_id) if chat_id else None
+        ggid = int(group_id) if group_id else None
+        now = int(time.time())
+        if not text:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.message_drafts WHERE user_id=%s AND COALESCE(chat_id,0)=%s AND COALESCE(group_id,0)=%s",
+                (int(user_id), cid or 0, ggid or 0)
+            )
+        else:
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.message_drafts (user_id, chat_id, group_id, text, updated_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING""",
+                (int(user_id), cid, ggid, text, now)
+            )
+            cur.execute(
+                f"""UPDATE {SCHEMA}.message_drafts SET text=%s, updated_at=%s
+                    WHERE user_id=%s AND COALESCE(chat_id,0)=%s AND COALESCE(group_id,0)=%s""",
+                (text, now, int(user_id), cid or 0, ggid or 0)
+            )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "draft_get":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        chat_id = body.get("chat_id")
+        group_id = body.get("group_id")
+        cid = int(chat_id) if chat_id else 0
+        ggid = int(group_id) if group_id else 0
+        cur.execute(
+            f"""SELECT text FROM {SCHEMA}.message_drafts
+                WHERE user_id=%s AND COALESCE(chat_id,0)=%s AND COALESCE(group_id,0)=%s""",
+            (int(user_id), cid, ggid)
+        )
+        rr = cur.fetchone()
+        conn.close()
+        return ok({"text": rr[0] if rr else ""})
+
+    # ── Payment Requests ──────────────────────────────────────────────────────
+    if action == "payment_request_create":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            to_id = int(body.get("to_user_id") or 0)
+            amount = float(body.get("amount") or 0)
+        except Exception:
+            conn.close(); return err("Неверные параметры")
+        title = (body.get("title") or "").strip()[:200]
+        chat_id = body.get("chat_id")
+        if to_id <= 0 or amount <= 0:
+            conn.close(); return err("Укажите получателя и сумму")
+        now = int(time.time())
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.payment_requests (from_user_id, to_user_id, amount, title, chat_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+            (int(user_id), to_id, amount, title, int(chat_id) if chat_id else None, now)
+        )
+        pid = int(cur.fetchone()[0])
+        conn.close()
+        return ok({"id": pid})
+
+    if action == "payment_request_list":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT pr.id, pr.from_user_id, pr.to_user_id, pr.amount, pr.title, pr.status, pr.created_at, pr.paid_at,
+                       uf.name, ut.name
+                FROM {SCHEMA}.payment_requests pr
+                LEFT JOIN {SCHEMA}.users uf ON uf.id=pr.from_user_id
+                LEFT JOIN {SCHEMA}.users ut ON ut.id=pr.to_user_id
+                WHERE pr.from_user_id=%s OR pr.to_user_id=%s
+                ORDER BY pr.created_at DESC LIMIT 100""",
+            (int(user_id), int(user_id))
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"items": [{
+            "id": r[0], "from_user_id": r[1], "to_user_id": r[2],
+            "amount": float(r[3]), "title": r[4], "status": r[5],
+            "created_at": int(r[6]), "paid_at": int(r[7]) if r[7] else None,
+            "from_name": r[8], "to_name": r[9],
+            "is_outgoing": int(r[1]) == int(user_id),
+        } for r in rows]})
+
+    if action == "payment_request_pay":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            pid = int(body.get("id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный id")
+        cur.execute(
+            f"SELECT from_user_id, to_user_id, amount, status FROM {SCHEMA}.payment_requests WHERE id=%s",
+            (pid,)
+        )
+        r = cur.fetchone()
+        if not r:
+            conn.close(); return err("Счёт не найден", 404)
+        from_id, to_id, amt, status = int(r[0]), int(r[1]), float(r[2]), r[3]
+        if from_id != int(user_id):
+            conn.close(); return err("Это не ваш счёт")
+        if status != "pending":
+            conn.close(); return err("Счёт уже не активен")
+        # Списать с баланса плательщика, начислить получателю
+        cur.execute(f"SELECT COALESCE(wallet_balance,0) FROM {SCHEMA}.users WHERE id=%s", (from_id,))
+        bal = float(cur.fetchone()[0] or 0)
+        if bal < amt:
+            conn.close(); return err("Недостаточно средств. Пополните кошелёк.")
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=COALESCE(wallet_balance,0)-%s WHERE id=%s", (amt, from_id))
+        cur.execute(f"UPDATE {SCHEMA}.users SET wallet_balance=COALESCE(wallet_balance,0)+%s WHERE id=%s", (amt, to_id))
+        now = int(time.time())
+        cur.execute(
+            f"UPDATE {SCHEMA}.payment_requests SET status='paid', paid_at=%s WHERE id=%s",
+            (now, pid)
+        )
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, reason, created_at) VALUES (%s, %s, %s, %s)",
+            (from_id, -amt, f"Оплата счёта #{pid}", now)
+        )
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.wallet_transactions (user_id, amount, reason, created_at) VALUES (%s, %s, %s, %s)",
+            (to_id, amt, f"Платёж по счёту #{pid}", now)
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "payment_request_cancel":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            pid = int(body.get("id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный id")
+        cur.execute(
+            f"UPDATE {SCHEMA}.payment_requests SET status='cancelled' WHERE id=%s AND to_user_id=%s AND status='pending'",
+            (pid, int(user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── Bot Commands ──────────────────────────────────────────────────────────
+    if action == "bot_commands_list":
+        try:
+            bid = int(body.get("bot_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный bot_id")
+        cur.execute(
+            f"SELECT id, command, description FROM {SCHEMA}.bot_commands WHERE bot_id=%s ORDER BY id ASC",
+            (bid,)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"commands": [{"id": r[0], "command": r[1], "description": r[2]} for r in rows]})
+
+    if action == "bot_commands_set":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            bid = int(body.get("bot_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный bot_id")
+        cmds = body.get("commands") or []
+        # проверяем что бот принадлежит юзеру
+        cur.execute(f"SELECT bot_owner_id FROM {SCHEMA}.users WHERE id=%s AND COALESCE(is_bot,FALSE)=TRUE", (bid,))
+        rr = cur.fetchone()
+        if not rr or int(rr[0]) != int(user_id):
+            conn.close(); return err("Бот не ваш", 403)
+        cur.execute(f"DELETE FROM {SCHEMA}.bot_commands WHERE bot_id=%s", (bid,))
+        for c in cmds:
+            cmd = (c.get("command") or "").strip()[:32]
+            desc = (c.get("description") or "").strip()[:200]
+            if cmd:
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.bot_commands (bot_id, command, description) VALUES (%s, %s, %s)",
+                    (bid, cmd, desc)
+                )
+        conn.close()
+        return ok({"ok": True})
+
+    # ── Close Friends ─────────────────────────────────────────────────────────
+    if action == "close_friends_list":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT cf.friend_id, u.name, u.avatar_url
+                FROM {SCHEMA}.close_friends cf
+                JOIN {SCHEMA}.users u ON u.id=cf.friend_id
+                WHERE cf.user_id=%s ORDER BY cf.created_at DESC""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"friends": [{"id": r[0], "name": r[1], "avatar_url": r[2]} for r in rows]})
+
+    if action == "close_friends_toggle":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            fid = int(body.get("friend_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный friend_id")
+        cur.execute(
+            f"SELECT 1 FROM {SCHEMA}.close_friends WHERE user_id=%s AND friend_id=%s",
+            (int(user_id), fid)
+        )
+        if cur.fetchone():
+            cur.execute(f"DELETE FROM {SCHEMA}.close_friends WHERE user_id=%s AND friend_id=%s", (int(user_id), fid))
+            conn.close()
+            return ok({"in_list": False})
+        else:
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.close_friends (user_id, friend_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (int(user_id), fid)
+            )
+            conn.close()
+            return ok({"in_list": True})
+
+    # ── User Sessions ─────────────────────────────────────────────────────────
+    if action == "sessions_list":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"""SELECT id, device_name, device_info, ip_addr, created_at, last_active_at, revoked
+                FROM {SCHEMA}.user_sessions WHERE user_id=%s ORDER BY last_active_at DESC LIMIT 50""",
+            (int(user_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return ok({"sessions": [{
+            "id": r[0], "device_name": r[1], "device_info": r[2], "ip_addr": r[3],
+            "created_at": int(r[4]), "last_active_at": int(r[5]), "revoked": bool(r[6]),
+        } for r in rows]})
+
+    if action == "sessions_revoke":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            sid = int(body.get("session_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный session_id")
+        cur.execute(
+            f"UPDATE {SCHEMA}.user_sessions SET revoked=TRUE WHERE id=%s AND user_id=%s",
+            (sid, int(user_id))
+        )
+        conn.close()
+        return ok({"ok": True})
+
+    if action == "sessions_revoke_all":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        cur.execute(
+            f"UPDATE {SCHEMA}.user_sessions SET revoked=TRUE WHERE user_id=%s",
+            (int(user_id),)
+        )
+        conn.close()
+        return ok({"ok": True})
+
     # ── support tickets (user side) ───────────────────────────────────────────
     if action == "support_create_ticket":
         if not user_id:
@@ -2135,18 +2594,25 @@ def handler(event: dict, context) -> dict:
             conn.close(); return err("Группа не найдена", 404)
         if int(rr[0]) != int(user_id):
             conn.close(); return err("Только владелец может удалить", 403)
-        # Удаляем сообщения, участников, саму группу
+        # Каскадное удаление зависимостей
+        cleanup_queries = [
+            f"DELETE FROM {SCHEMA}.group_message_reactions WHERE message_id IN (SELECT id FROM {SCHEMA}.group_messages WHERE group_id=%s)",
+            f"DELETE FROM {SCHEMA}.group_message_views WHERE message_id IN (SELECT id FROM {SCHEMA}.group_messages WHERE group_id=%s)",
+            f"DELETE FROM {SCHEMA}.group_messages WHERE group_id=%s",
+            f"DELETE FROM {SCHEMA}.group_members WHERE group_id=%s",
+        ]
+        for q in cleanup_queries:
+            try:
+                cur.execute(q, (gid,))
+            except Exception:
+                conn.rollback(); cur = conn.cursor()
         try:
-            cur.execute(f"DELETE FROM {SCHEMA}.group_messages WHERE group_id=%s", (gid,))
-        except Exception:
-            conn.rollback(); cur = conn.cursor()
-        try:
-            cur.execute(f"DELETE FROM {SCHEMA}.group_members WHERE group_id=%s", (gid,))
-        except Exception:
-            conn.rollback(); cur = conn.cursor()
-        cur.execute(f"DELETE FROM {SCHEMA}.groups WHERE id=%s", (gid,))
-        conn.close()
-        return ok({"ok": True})
+            cur.execute(f"DELETE FROM {SCHEMA}.groups WHERE id=%s", (gid,))
+            conn.close()
+            return ok({"ok": True})
+        except Exception as e:
+            conn.close()
+            return err(f"Не удалось удалить: {e}", 500)
 
     # ── search_channels — публичный поиск ─────────────────────────────────────
     if action == "search_channels":

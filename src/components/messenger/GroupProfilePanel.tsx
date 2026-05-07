@@ -47,6 +47,7 @@ export function GroupProfilePanel({
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [onlyAdmins, setOnlyAdmins] = useState<boolean>(false);
 
   // Подгружаем актуальную инфу
   useEffect(() => {
@@ -54,9 +55,17 @@ export function GroupProfilePanel({
       if (d?.group) {
         setInfo(d.group);
         if (d.group.invite_link) setInviteLink(d.group.invite_link);
+        setOnlyAdmins(!!d.group.only_admins_post);
       }
     });
   }, [group.id, currentUser.id]);
+
+  const toggleOnlyAdmins = async () => {
+    const next = !onlyAdmins;
+    setOnlyAdmins(next);
+    const r = await api("set_group_only_admins", { group_id: group.id, only_admins_post: next }, currentUser.id);
+    if (r?.error) { setOnlyAdmins(!next); alert(r.error); }
+  };
 
   const saveName = async () => {
     const v = editName.trim();
@@ -344,6 +353,25 @@ export function GroupProfilePanel({
                       : <><Icon name="RefreshCw" size={12} /> Обновить</>}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Только админы могут писать (для каналов и групп) */}
+            {isOwner && (
+              <div className="glass rounded-2xl p-4 flex items-center gap-3">
+                <Icon name="ShieldCheck" size={20} className="text-violet-400" />
+                <div className="flex-1">
+                  <div className="font-semibold text-sm">Писать могут только админы</div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {info.is_channel ? "Стандартное поведение каналов" : "Превратит группу в анонс-канал"}
+                  </p>
+                </div>
+                <button
+                  onClick={toggleOnlyAdmins}
+                  className={`w-11 h-6 rounded-full transition ${onlyAdmins ? "bg-violet-500" : "bg-white/10"}`}
+                >
+                  <span className={`block w-5 h-5 bg-white rounded-full transition-transform ${onlyAdmins ? "translate-x-5" : "translate-x-0.5"}`} />
+                </button>
               </div>
             )}
 
