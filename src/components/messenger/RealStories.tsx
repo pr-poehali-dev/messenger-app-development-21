@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/icon";
 import { api, avatarGrad, uploadMedia, type User } from "@/lib/api";
 
@@ -151,6 +151,27 @@ export function RealStoryViewer({
     api("story_view", { story_id: story.id }, currentUser.id);
   }, [story?.id, group?.is_me]);
 
+  const next = useCallback(() => {
+    if (!group) return;
+    if (storyIdx + 1 < group.stories.length) {
+      setStoryIdx(storyIdx + 1);
+    } else if (groupIdx + 1 < groups.length) {
+      setGroupIdx(groupIdx + 1);
+      setStoryIdx(0);
+    } else {
+      onClose();
+    }
+  }, [group, storyIdx, groupIdx, groups, onClose]);
+
+  const prev = useCallback(() => {
+    if (storyIdx > 0) setStoryIdx(storyIdx - 1);
+    else if (groupIdx > 0) {
+      const g = groups[groupIdx - 1];
+      setGroupIdx(groupIdx - 1);
+      setStoryIdx(g.stories.length - 1);
+    }
+  }, [storyIdx, groupIdx, groups]);
+
   // Прогресс 5 секунд
   useEffect(() => {
     if (!story || paused) return;
@@ -163,28 +184,7 @@ export function RealStoryViewer({
       if (p >= 100) { clearInterval(t); next(); }
     }, 50);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [story?.id, paused]);
-
-  const next = () => {
-    if (!group) return;
-    if (storyIdx + 1 < group.stories.length) {
-      setStoryIdx(storyIdx + 1);
-    } else if (groupIdx + 1 < groups.length) {
-      setGroupIdx(groupIdx + 1);
-      setStoryIdx(0);
-    } else {
-      onClose();
-    }
-  };
-  const prev = () => {
-    if (storyIdx > 0) setStoryIdx(storyIdx - 1);
-    else if (groupIdx > 0) {
-      const g = groups[groupIdx - 1];
-      setGroupIdx(groupIdx - 1);
-      setStoryIdx(g.stories.length - 1);
-    }
-  };
+  }, [story?.id, paused, next]);
 
   const openViews = async () => {
     if (!story || !group?.is_me) return;

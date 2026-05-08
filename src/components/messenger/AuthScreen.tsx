@@ -98,9 +98,6 @@ export function AuthScreen({ onDone }: { onDone: (user: User) => void }) {
     }
   };
 
-  void existed;
-  void tempUserId;
-
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
       <div className="mesh-bg" />

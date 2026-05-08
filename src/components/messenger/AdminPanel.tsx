@@ -10,6 +10,7 @@ import {
 import { AdminStatsTab } from "./admin/AdminStatsTab";
 import { AdminUsersTab } from "./admin/AdminUsersTab";
 import { AdminSupportTab } from "./admin/AdminSupportTab";
+import { clearDevPin, isDevPinSet } from "./DevPinLock";
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState(() => sessionStorage.getItem("nova_admin_token") || "");
@@ -314,9 +315,23 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           <span className="font-bold">Nova Dev Panel</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => tab === "stats" ? loadStats() : loadUsers(search)} className="p-2 glass rounded-xl text-muted-foreground hover:text-foreground">
+          <button onClick={() => tab === "stats" ? loadStats() : loadUsers(search)} className="p-2 glass rounded-xl text-muted-foreground hover:text-foreground" title="Обновить">
             <Icon name="RefreshCw" size={16} />
           </button>
+          {isDevPinSet() && (
+            <button
+              onClick={() => {
+                if (confirm("Сбросить PIN-код Dev-панели? Потребуется создать новый при следующем входе.")) {
+                  clearDevPin();
+                  onClose();
+                }
+              }}
+              className="p-2 glass rounded-xl text-muted-foreground hover:text-amber-400"
+              title="Сбросить PIN"
+            >
+              <Icon name="ShieldOff" size={16} />
+            </button>
+          )}
           <button onClick={onClose} className="p-2 glass rounded-xl text-muted-foreground hover:text-foreground">
             <Icon name="X" size={18} />
           </button>
