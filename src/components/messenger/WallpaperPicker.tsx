@@ -1,6 +1,6 @@
 import Icon from "@/components/ui/icon";
 
-export const WALLPAPERS: Array<{ id: string; name: string; css: string }> = [
+export const WALLPAPERS: Array<{ id: string; name: string; css: string; className?: string; animated?: boolean }> = [
   { id: "default", name: "По умолчанию", css: "" },
   { id: "violet", name: "Фиолет", css: "linear-gradient(160deg, #1e0a3c 0%, #0f172a 100%)" },
   { id: "ocean", name: "Океан", css: "linear-gradient(160deg, #0c4a6e 0%, #082f49 60%, #020617 100%)" },
@@ -11,12 +11,24 @@ export const WALLPAPERS: Array<{ id: string; name: string; css: string }> = [
   { id: "mint", name: "Мята", css: "linear-gradient(160deg, #0d9488 0%, #134e4a 60%, #0f172a 100%)" },
   { id: "ember", name: "Угли", css: "linear-gradient(160deg, #7f1d1d 0%, #18181b 100%)" },
   { id: "dots", name: "Точки", css: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.10) 1px, transparent 0) 0 0/22px 22px, linear-gradient(160deg, #1e1b4b 0%, #0f172a 100%)" },
+  // Анимированные
+  { id: "anim-aurora", name: "Аврора 🌌", css: "", className: "wp-animated-aurora", animated: true },
+  { id: "anim-sunset", name: "Закат ✨", css: "", className: "wp-animated-sunset", animated: true },
+  { id: "anim-ocean", name: "Океан 🌊", css: "", className: "wp-animated-ocean", animated: true },
+  { id: "anim-rose", name: "Роза 🌹", css: "", className: "wp-animated-rose", animated: true },
+  { id: "anim-stars", name: "Звёзды ⭐", css: "", className: "wp-animated-stars", animated: true },
 ];
 
 export function wallpaperById(id: string | null | undefined): string {
   if (!id) return "";
   const w = WALLPAPERS.find(x => x.id === id);
   return w?.css || "";
+}
+
+export function wallpaperClassById(id: string | null | undefined): string {
+  if (!id) return "";
+  const w = WALLPAPERS.find(x => x.id === id);
+  return w?.className || "";
 }
 
 export default function WallpaperPicker({
@@ -53,15 +65,18 @@ export default function WallpaperPicker({
               <button
                 key={w.id}
                 onClick={() => { onSelect(w.id === "default" ? null : w.id); onClose(); }}
-                className={`relative aspect-[3/4] rounded-2xl overflow-hidden border-2 transition-all ${active ? "border-violet-400 scale-95" : "border-white/10 hover:border-white/30"}`}
+                className={`relative aspect-[3/4] rounded-2xl overflow-hidden border-2 transition-all ${active ? "border-violet-400 scale-95" : "border-white/10 hover:border-white/30"} ${w.className || ""}`}
                 style={w.css ? { background: w.css } : undefined}
               >
-                {!w.css && (
+                {!w.css && !w.className && (
                   <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900" />
                 )}
                 <div className="absolute inset-0 flex items-end p-2">
                   <span className="text-[10px] font-semibold text-white/90 drop-shadow">{w.name}</span>
                 </div>
+                {w.animated && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[8px] font-bold bg-black/40 text-white/90 backdrop-blur">LIVE</div>
+                )}
                 {active && (
                   <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center">
                     <Icon name="Check" size={12} className="text-white" />

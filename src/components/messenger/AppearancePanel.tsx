@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { type User, api } from "@/lib/api";
-import { applyAccent, applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_META, type ThemeId } from "@/lib/theme";
+import { applyAccent, applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_META, type ThemeId, type AutoConfig, type AutoMode, getStoredAutoConfig, setStoredAutoConfig, startAutoTheme, stopAutoTheme } from "@/lib/theme";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import { useT } from "@/hooks/useT";
 
@@ -47,6 +47,15 @@ export default function AppearancePanel({
   const [wallpaper, setWallpaper] = useState<string>(currentUser.chat_wallpaper || "default");
   const [bubbleStyle, setBubbleStyle] = useState<string>(currentUser.bubble_style || "default");
   const [toast, setToast] = useState<string>("");
+  const [autoCfg, setAutoCfg] = useState<AutoConfig>(getStoredAutoConfig());
+
+  const updateAuto = (patch: Partial<AutoConfig>) => {
+    const next = { ...autoCfg, ...patch };
+    setAutoCfg(next);
+    setStoredAutoConfig(next);
+    if (next.mode === "off") stopAutoTheme();
+    else startAutoTheme(next);
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -124,6 +133,75 @@ export default function AppearancePanel({
               );
             })}
           </div>
+        </Section>
+
+        {/* Авто-тема */}
+        <Section title="Авто-тема">
+          <div className="flex gap-1.5">
+            {([
+              { id: "off", label: "Выкл" },
+              { id: "system", label: "Система" },
+              { id: "schedule", label: "По часам" },
+            ] as { id: AutoMode; label: string }[]).map(o => {
+              const active = autoCfg.mode === o.id;
+              return (
+                <button
+                  key={o.id}
+                  onClick={() => updateAuto({ mode: o.id })}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${active ? "bg-violet-500 text-white" : "bg-white/5 text-muted-foreground hover:bg-white/8"}`}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          {autoCfg.mode === "schedule" && (
+            <div className="mt-3 p-3 rounded-xl bg-white/5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground w-14">Тёмная с</span>
+                <input
+                  type="number" min={0} max={23} value={autoCfg.startHour}
+                  onChange={e => updateAuto({ startHour: Math.max(0, Math.min(23, parseInt(e.target.value || "0", 10))) })}
+                  className="w-14 bg-white/5 rounded px-2 py-1 text-sm tabular-nums text-center outline-none focus:bg-white/8"
+                />
+                <span className="text-[11px] text-muted-foreground">до</span>
+                <input
+                  type="number" min={0} max={23} value={autoCfg.endHour}
+                  onChange={e => updateAuto({ endHour: Math.max(0, Math.min(23, parseInt(e.target.value || "0", 10))) })}
+                  className="w-14 bg-white/5 rounded px-2 py-1 text-sm tabular-nums text-center outline-none focus:bg-white/8"
+                />
+                <span className="text-[11px] text-muted-foreground">ч</span>
+              </div>
+            </div>
+          )}
+          {autoCfg.mode !== "off" && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] uppercase text-muted-foreground mb-1.5">День</div>
+                <select
+                  value={autoCfg.dayTheme}
+                  onChange={e => updateAuto({ dayTheme: e.target.value as ThemeId })}
+                  className="w-full bg-white/5 rounded-lg px-2 py-1.5 text-xs outline-none focus:bg-white/8"
+                >
+                  {THEMES_META.filter(t => !t.pro || isPro).map(t => (
+                    <option key={t.id} value={t.id} className="bg-zinc-900">{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase text-muted-foreground mb-1.5">Ночь</div>
+                <select
+                  value={autoCfg.nightTheme}
+                  onChange={e => updateAuto({ nightTheme: e.target.value as ThemeId })}
+                  className="w-full bg-white/5 rounded-lg px-2 py-1.5 text-xs outline-none focus:bg-white/8"
+                >
+                  {THEMES_META.filter(t => !t.pro || isPro).map(t => (
+                    <option key={t.id} value={t.id} className="bg-zinc-900">{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
         </Section>
 
         {/* Акцент */}

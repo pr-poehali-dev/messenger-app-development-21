@@ -20,7 +20,7 @@ import ExpiringIndicator from "@/components/messenger/ExpiringIndicator";
 import BotInlineButtons, { type InlineButton } from "@/components/messenger/BotInlineButtons";
 import ScheduleModal from "@/components/messenger/ScheduleModal";
 import ScheduledList, { type ScheduledItem } from "@/components/messenger/ScheduledList";
-import WallpaperPicker, { wallpaperById } from "@/components/messenger/WallpaperPicker";
+import WallpaperPicker, { wallpaperById, wallpaperClassById } from "@/components/messenger/WallpaperPicker";
 
 // Re-export atoms so existing imports from ChatComponents still work
 export { Avatar, TypingIndicator, ChatList } from "@/components/messenger/ChatAtoms";
@@ -108,6 +108,7 @@ export function ChatWindow({
   }, [chat.id, currentUser.id]);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
+  const [heartBurst, setHeartBurst] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -654,7 +655,7 @@ export function ChatWindow({
       <div
         ref={messagesScrollRef}
         onScroll={handleMessagesScroll}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-1 relative"
+        className={`flex-1 overflow-y-auto px-3 py-2 space-y-1 relative ${wallpaperClassById(wallpaper)}`}
         style={wallpaperById(wallpaper) ? { background: wallpaperById(wallpaper) } : undefined}
         onClick={() => { setShowMenu(false); setShowReactionPicker(null); }}
       >
@@ -756,7 +757,19 @@ export function ChatWindow({
                     onMouseUp={cancelHold}
                     onMouseLeave={cancelHold}
                     onContextMenu={e => { e.preventDefault(); setCtxMenu({ msgId: msg.id, out: msg.out }); }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      try { (navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(15); } catch { /* ignore */ }
+                      setHeartBurst(msg.id);
+                      window.setTimeout(() => setHeartBurst(h => (h === msg.id ? null : h)), 900);
+                      addReaction(msg.id, "❤️");
+                    }}
                   >
+                    {heartBurst === msg.id && (
+                      <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 text-3xl animate-heart-burst" aria-hidden>
+                        ❤️
+                      </div>
+                    )}
                     {msg.forwarded_from_name && (
                       <div className={`px-4 pt-2 pb-0.5 text-[11px] font-medium ${msg.out ? "text-white/80" : "text-violet-400"} flex items-center gap-1`}>
                         <Icon name="Forward" size={11} />

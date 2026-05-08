@@ -7,6 +7,7 @@ import EmojiStickerPicker from "@/components/messenger/EmojiStickerPicker";
 import { LinkifiedText } from "@/components/messenger/LinkifiedText";
 import VideoCircleRecorder from "@/components/messenger/VideoCircleRecorder";
 import GroupProfilePanel from "@/components/messenger/GroupProfilePanel";
+import { MediaViewer } from "@/components/messenger/MediaViewer";
 
 const POLL_MS = 2500;
 
@@ -34,6 +35,7 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const [pinned, setPinned] = useState<{ id: number; text: string; sender_name: string; media_type?: string } | null>(null);
   const [onlyAdminsPost, setOnlyAdminsPost] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -181,7 +183,11 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
         </button>
         <button onClick={() => setShowInfo(true)} className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition">
           {group.avatar_url ? (
-            <img src={group.avatar_url} className="w-10 h-10 rounded-2xl object-cover flex-shrink-0" />
+            <img
+              src={group.avatar_url}
+              className="w-10 h-10 rounded-2xl object-cover flex-shrink-0 active:scale-95 transition-transform"
+              onClick={(e) => { e.stopPropagation(); setAvatarOpen(true); }}
+            />
           ) : (
             <div className="w-10 h-10 rounded-2xl grad-primary flex items-center justify-center flex-shrink-0">
               <Icon name={group.is_channel ? "Radio" : "Users"} size={18} className="text-white" />
@@ -408,6 +414,11 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
       {/* Video circle */}
       <VideoCircleRecorder open={showVideoCircle} onClose={() => setShowVideoCircle(false)}
         onRecorded={file => sendFile(file)} />
+
+      {/* Avatar fullscreen viewer */}
+      {avatarOpen && group.avatar_url && (
+        <MediaViewer items={[{ url: group.avatar_url, type: "image" }]} onClose={() => setAvatarOpen(false)} />
+      )}
 
       {/* Group Profile Panel */}
       {showInfo && (

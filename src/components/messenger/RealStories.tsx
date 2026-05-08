@@ -136,6 +136,10 @@ export function RealStoryViewer({
   const [paused, setPaused] = useState(false);
   const [showViews, setShowViews] = useState<{ id: number; views: { user_id: number; name: string; viewed_at: number }[] } | null>(null);
   const [sentToast, setSentToast] = useState("");
+  const [dragY, setDragY] = useState(0);
+  const dragStartY = useRef<number | null>(null);
+  const dragStartX = useRef<number | null>(null);
+  const dragAxis = useRef<"x" | "y" | null>(null);
 
   const group = groups[groupIdx];
   const story = group?.stories[storyIdx];
@@ -201,8 +205,60 @@ export function RealStoryViewer({
     return null;
   }
 
+  const onTouchStart = (e: React.TouchEvent) => {
+    dragStartY.current = e.touches[0].clientY;
+    dragStartX.current = e.touches[0].clientX;
+    dragAxis.current = null;
+    setPaused(true);
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (dragStartY.current === null || dragStartX.current === null) return;
+    const dy = e.touches[0].clientY - dragStartY.current;
+    const dx = e.touches[0].clientX - dragStartX.current;
+    if (!dragAxis.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      dragAxis.current = Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+    }
+    if (dragAxis.current === "y" && dy > 0) setDragY(dy);
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    setPaused(false);
+    if (dragAxis.current === "y" && dragY > 100) { onClose(); }
+    else if (dragAxis.current === "x" && dragStartX.current !== null) {
+      const dx = (e.changedTouches[0]?.clientX ?? dragStartX.current) - dragStartX.current;
+      if (dx < -60 && groupIdx + 1 < groups.length) { setGroupIdx(groupIdx + 1); setStoryIdx(0); }
+      else if (dx > 60 && groupIdx > 0) {
+        const g = groups[groupIdx - 1];
+        setGroupIdx(groupIdx - 1);
+        setStoryIdx(g.stories.length - 1);
+      }
+    }
+    setDragY(0);
+    dragStartY.current = null;
+    dragStartX.current = null;
+    dragAxis.current = null;
+  };
+
+  const dragProgress = Math.min(1, dragY / 400);
+  const containerStyle = {
+    background: `rgba(0,0,0,${1 - dragProgress * 0.5})`,
+  };
+  const sceneStyle = {
+    transform: `translateY(${dragY}px) scale(${1 - dragProgress * 0.08})`,
+    transition: dragY === 0 ? "transform 220ms ease-out" : "none",
+    borderRadius: dragY > 20 ? "1.5rem" : "0",
+    overflow: "hidden" as const,
+  };
+
   return (
-    <div className="fixed inset-0 z-[300] bg-black animate-fade-in select-none" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[300] animate-fade-in select-none"
+      style={containerStyle}
+      onClick={onClose}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <div className="absolute inset-0" style={sceneStyle}>
       {/* Прогресс-бары */}
       <div className="absolute top-0 left-0 right-0 z-20 flex gap-1 px-3 pt-3" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
         {group.stories.map((_, i) => (
@@ -311,6 +367,7 @@ export function RealStoryViewer({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -15,11 +15,18 @@ function generateBars(seed: string, count = 32): number[] {
   return bars;
 }
 
+const SPEED_KEY = "nova_voice_speed";
+const SPEEDS = [1, 1.5, 2] as const;
+
 export function VoiceMessage({ url, out }: { url: string; out: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [curTime, setCurTime] = useState(0);
+  const [speed, setSpeed] = useState<number>(() => {
+    const v = Number(localStorage.getItem(SPEED_KEY));
+    return SPEEDS.includes(v as 1 | 1.5 | 2) ? v : 1;
+  });
   const audioRef = useRef<HTMLAudioElement>(null);
   const bars = useRef(generateBars(url, 32)).current;
 
@@ -28,11 +35,24 @@ export function VoiceMessage({ url, out }: { url: string; out: boolean }) {
     return () => { a?.pause(); };
   }, []);
 
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) a.playbackRate = speed;
+  }, [speed]);
+
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;
+    a.playbackRate = speed;
     if (a.paused) a.play().catch(() => {});
     else a.pause();
+  };
+
+  const cycleSpeed = () => {
+    const idx = SPEEDS.indexOf(speed as 1 | 1.5 | 2);
+    const next = SPEEDS[(idx + 1) % SPEEDS.length];
+    setSpeed(next);
+    try { localStorage.setItem(SPEED_KEY, String(next)); } catch { /* ignore */ }
   };
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -95,6 +115,22 @@ export function VoiceMessage({ url, out }: { url: string; out: boolean }) {
           {fmt(curTime > 0 ? curTime : duration)}
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); cycleSpeed(); }}
+        className="flex-shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold tabular-nums active:scale-95 transition-transform"
+        style={{
+          background: speed === 1 ? "transparent" : (out ? "rgba(255,255,255,0.22)" : "rgba(139,92,246,0.25)"),
+          color: speed === 1
+            ? (out ? "rgba(255,255,255,0.6)" : "hsl(var(--muted-foreground))")
+            : (out ? "#fff" : "#a78bfa"),
+          border: speed === 1 ? `1px solid ${out ? "rgba(255,255,255,0.3)" : "rgba(167,139,250,0.4)"}` : "none",
+        }}
+        title="Скорость воспроизведения"
+      >
+        {speed}×
+      </button>
 
       <audio
         ref={audioRef}

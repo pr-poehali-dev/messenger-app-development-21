@@ -115,7 +115,7 @@ export function ChatHeader({
         onTouchCancel={cancelHeaderHold}
         onContextMenu={(e) => { e.preventDefault(); setShowMenu(true); }}
       >
-        <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} src={chat.avatar_url || undefined} />
+        <Avatar label={chat.avatar} id={chat.id} size="md" online={chat.online} src={chat.avatar_url || undefined} zoomable />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-foreground truncate">{chat.name}</span>

@@ -1,13 +1,20 @@
+import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { avatarGrad, type Chat } from "@/lib/api";
+import { MediaViewer } from "@/components/messenger/MediaViewer";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-export function Avatar({ label, id, size = "md", online, src }: { label: string; id: number; size?: "sm" | "md" | "lg" | "xl"; online?: boolean; src?: string | null }) {
+export function Avatar({ label, id, size = "md", online, src, zoomable }: { label: string; id: number; size?: "sm" | "md" | "lg" | "xl"; online?: boolean; src?: string | null; zoomable?: boolean }) {
+  const [open, setOpen] = useState(false);
   const sz = { sm: "w-9 h-9 text-sm", md: "w-11 h-11 text-base", lg: "w-14 h-14 text-xl", xl: "w-20 h-20 text-3xl" }[size];
+  const canZoom = zoomable && !!src;
   return (
     <div className="relative flex-shrink-0">
-      <div className={`${sz} rounded-full bg-gradient-to-br ${avatarGrad(id)} flex items-center justify-center font-bold text-white overflow-hidden`}>
+      <div
+        className={`${sz} rounded-full bg-gradient-to-br ${avatarGrad(id)} flex items-center justify-center font-bold text-white overflow-hidden ${canZoom ? "cursor-pointer active:scale-95 transition-transform" : ""}`}
+        onClick={canZoom ? (e) => { e.stopPropagation(); setOpen(true); } : undefined}
+      >
         {src ? (
           <img src={src} alt={label} className="w-full h-full object-cover" />
         ) : (
@@ -16,6 +23,9 @@ export function Avatar({ label, id, size = "md", online, src }: { label: string;
       </div>
       {online && (
         <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-[hsl(var(--background))] rounded-full" />
+      )}
+      {open && src && (
+        <MediaViewer items={[{ url: src, type: "image" }]} onClose={() => setOpen(false)} />
       )}
     </div>
   );

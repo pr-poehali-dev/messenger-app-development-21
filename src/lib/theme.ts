@@ -89,3 +89,77 @@ export function applyAccent(hex: string) {
 export function getStoredAccentHex(): string | null {
   try { return localStorage.getItem("nova_accent_hex"); } catch { return null; }
 }
+
+// ─── Авто-переключение темы ──────────────────────────────────────────────
+export type AutoMode = "off" | "system" | "schedule";
+
+export interface AutoConfig {
+  mode: AutoMode;
+  dayTheme: ThemeId;
+  nightTheme: ThemeId;
+  startHour: number; // час перехода в ночную (0..23)
+  endHour: number;   // час перехода в дневную (0..23)
+}
+
+const AUTO_KEY = "nova_auto_theme";
+
+export function getStoredAutoConfig(): AutoConfig {
+  try {
+    const raw = localStorage.getItem(AUTO_KEY);
+    if (raw) {
+      const v = JSON.parse(raw) as AutoConfig;
+      if (v && typeof v === "object" && "mode" in v) return v;
+    }
+  } catch { /* ignore */ }
+  return { mode: "off", dayTheme: "light", nightTheme: "midnight", startHour: 22, endHour: 7 };
+}
+
+export function setStoredAutoConfig(cfg: AutoConfig) {
+  try { localStorage.setItem(AUTO_KEY, JSON.stringify(cfg)); } catch { /* ignore */ }
+}
+
+export function isNightNow(cfg: AutoConfig): boolean {
+  const h = new Date().getHours();
+  const { startHour, endHour } = cfg;
+  if (startHour === endHour) return false;
+  if (startHour < endHour) return h >= startHour && h < endHour;
+  // переход через полночь (например 22 -> 7)
+  return h >= startHour || h < endHour;
+}
+
+let autoTimer: ReturnType<typeof setInterval> | null = null;
+let autoMql: MediaQueryList | null = null;
+let autoMqlHandler: ((e: MediaQueryListEvent) => void) | null = null;
+
+function applyAutoOnce(cfg: AutoConfig) {
+  if (cfg.mode === "off") return;
+  let target: ThemeId;
+  if (cfg.mode === "system") {
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    target = prefersDark ? cfg.nightTheme : cfg.dayTheme;
+  } else {
+    target = isNightNow(cfg) ? cfg.nightTheme : cfg.dayTheme;
+  }
+  if (getStoredTheme() !== target) applyTheme(target, getStoredFontSize());
+}
+
+export function startAutoTheme(cfg: AutoConfig) {
+  stopAutoTheme();
+  if (cfg.mode === "off") return;
+  applyAutoOnce(cfg);
+  if (cfg.mode === "schedule") {
+    autoTimer = setInterval(() => applyAutoOnce(cfg), 60_000);
+  } else if (cfg.mode === "system" && window.matchMedia) {
+    autoMql = window.matchMedia("(prefers-color-scheme: dark)");
+    autoMqlHandler = () => applyAutoOnce(cfg);
+    autoMql.addEventListener?.("change", autoMqlHandler);
+  }
+}
+
+export function stopAutoTheme() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  if (autoMql && autoMqlHandler) {
+    autoMql.removeEventListener?.("change", autoMqlHandler);
+    autoMql = null; autoMqlHandler = null;
+  }
+}
