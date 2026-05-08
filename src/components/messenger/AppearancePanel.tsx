@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import { type User, api } from "@/lib/api";
-import { applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_META, type ThemeId } from "@/lib/theme";
+import { applyAccent, applyFontSize, applyTheme, getStoredFontSize, getStoredTheme, THEMES_META, type ThemeId } from "@/lib/theme";
 import { useEdgeSwipeBack } from "@/hooks/useEdgeSwipeBack";
 import { useT } from "@/hooks/useT";
 
@@ -31,6 +31,10 @@ const BUBBLES = [
   { id: "minimal", name: "Минимал" },
 ];
 
+function vibrate(ms = 10) {
+  try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(ms); } catch { /* ignore */ }
+}
+
 export default function AppearancePanel({
   currentUser, onClose, onUserUpdate,
 }: { currentUser: User; onClose: () => void; onUserUpdate: (u: User) => void; }) {
@@ -42,10 +46,20 @@ export default function AppearancePanel({
   const [accent, setAccent] = useState<string>(currentUser.accent_color || "violet");
   const [wallpaper, setWallpaper] = useState<string>(currentUser.chat_wallpaper || "default");
   const [bubbleStyle, setBubbleStyle] = useState<string>(currentUser.bubble_style || "default");
+  const [toast, setToast] = useState<string>("");
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(""), 2200);
+  };
 
   const setT = (id: ThemeId, pro: boolean | undefined) => {
-    if (pro && !isPro) { alert("Эта тема доступна с Nova Pro"); return; }
-    setTheme(id); applyTheme(id, font);
+    if (pro && !isPro) { showToast("Эта тема доступна с Nova Pro"); vibrate(20); return; }
+    vibrate(10);
+    setTheme(id);
+    applyTheme(id, font);
+    const hex = ACCENT_COLORS.find(c => c.id === accent)?.hex || "#8b5cf6";
+    applyAccent(hex);
     api("update_user_settings", { theme_id: id }, currentUser.id);
     onUserUpdate({ ...currentUser, theme_id: id } as User);
   };
@@ -57,8 +71,10 @@ export default function AppearancePanel({
   };
 
   const setA = (id: string) => {
+    vibrate(10);
     setAccent(id);
-    document.documentElement.style.setProperty("--accent", ACCENT_COLORS.find(c => c.id === id)?.hex || "#8b5cf6");
+    const hex = ACCENT_COLORS.find(c => c.id === id)?.hex || "#8b5cf6";
+    applyAccent(hex);
     api("update_user_settings", { accent_color: id }, currentUser.id);
     onUserUpdate({ ...currentUser, accent_color: id } as User);
   };
@@ -180,6 +196,16 @@ export default function AppearancePanel({
           </div>
         </Section>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[300] px-4 py-2.5 rounded-2xl bg-black/80 backdrop-blur text-white text-sm font-medium shadow-2xl animate-fade-in"
+          style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

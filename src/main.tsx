@@ -4,8 +4,10 @@ import App from './App'
 import './index.css'
 
 // Применяем сохранённую тему до рендера, чтобы не было «вспышки» дефолтной
-import { applyTheme, getStoredTheme, getStoredFontSize } from "@/lib/theme";
+import { applyTheme, getStoredTheme, getStoredFontSize, applyAccent, getStoredAccentHex } from "@/lib/theme";
 applyTheme(getStoredTheme(), getStoredFontSize());
+const _accent = getStoredAccentHex();
+if (_accent) applyAccent(_accent);
 
 createRoot(document.getElementById("root")!).render(<App />);
 
