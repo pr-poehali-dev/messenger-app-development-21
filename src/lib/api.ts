@@ -1,7 +1,11 @@
 export const CHAT_API = "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3";
+export const CHAT_POLL_API = "https://functions.poehali.dev/3fc067b7-d1b3-4aed-8ad9-98df81040f0a";
 export const PUSH_API = "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af";
 export const UPLOAD_API = "https://functions.poehali.dev/c0e361f0-438f-44b3-8886-26f5afb7d935";
 export const YOOKASSA_PAY_API = "https://functions.poehali.dev/2feb7862-ee04-4945-8549-c0596f30bdc9";
+
+// Лёгкие polling-эндпоинты вынесены в отдельную функцию chat-poll
+const POLL_ACTIONS = new Set(["get_typing", "get_call_signals", "poll_incoming_call", "scheduled_run_due"]);
 
 export interface UploadResult {
   url: string;
@@ -37,7 +41,8 @@ export async function uploadImage(file: File, userId: number): Promise<string> {
 }
 
 export async function api(action: string, body: Record<string, unknown> = {}, userId?: number) {
-  const res = await fetch(CHAT_API, {
+  const url = POLL_ACTIONS.has(action) ? CHAT_POLL_API : CHAT_API;
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(userId ? { "X-User-Id": String(userId) } : {}) },
     body: JSON.stringify({ action, ...body }),
