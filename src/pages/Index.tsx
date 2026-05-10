@@ -220,8 +220,11 @@ export default function Index() {
       }
     };
     loadChats();
-    const interval = setInterval(loadChats, 5000);
-    return () => clearInterval(interval);
+    const tick = () => { if (document.visibilityState === "visible") loadChats(); };
+    const interval = setInterval(tick, 8000);
+    const onVis = () => { if (document.visibilityState === "visible") loadChats(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVis); };
   }, [currentUser, showArchived]);
 
   // Загрузка групп
@@ -233,8 +236,11 @@ export default function Index() {
       });
     };
     loadGroups();
-    const t = setInterval(loadGroups, 6000);
-    return () => clearInterval(t);
+    const tick = () => { if (document.visibilityState === "visible") loadGroups(); };
+    const t = setInterval(tick, 10000);
+    const onVis = () => { if (document.visibilityState === "visible") loadGroups(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [currentUser]);
 
   // Обработка ?join=CODE после авторизации
@@ -264,11 +270,14 @@ export default function Index() {
     });
   }, [currentUser]);
 
-  // Глобальная отправка запланированных сообщений (раз в минуту)
+  // Глобальная отправка запланированных сообщений (раз в 2 минуты, только когда вкладка активна)
   useEffect(() => {
     if (!currentUser) return;
     api("scheduled_run_due", {}, currentUser.id);
-    const t = setInterval(() => api("scheduled_run_due", {}, currentUser.id), 60000);
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      api("scheduled_run_due", {}, currentUser.id);
+    }, 120000);
     return () => clearInterval(t);
   }, [currentUser]);
 
@@ -299,18 +308,19 @@ export default function Index() {
     setActiveCall({ userId: contact.id, name: contact.name, callId, incoming: false });
   };
 
-  // Polling входящих звонков
+  // Polling входящих звонков (только когда вкладка активна)
   useEffect(() => {
     if (!currentUser) return;
     const since = { val: Math.floor(Date.now() / 1000) - 5 };
     const interval = setInterval(async () => {
       if (activeCall) return;
+      if (document.visibilityState !== "visible") return;
       const data = await api("poll_incoming_call", { since: since.val }, currentUser.id);
       if (data.call) {
         since.val = data.call.created_at;
         setActiveCall({ userId: data.call.from_user_id, name: data.call.from_name, callId: data.call.call_id, incoming: true });
       }
-    }, 3000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [currentUser, activeCall]);
 

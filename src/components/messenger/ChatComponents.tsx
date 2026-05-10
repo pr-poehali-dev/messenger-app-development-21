@@ -197,15 +197,19 @@ export function ChatWindow({
   }, [chat.id]);
 
   useEffect(() => {
-    const interval = setInterval(() => loadMessages(lastSince), 2000);
-    return () => clearInterval(interval);
+    const tick = () => { if (document.visibilityState === "visible") loadMessages(lastSince); };
+    const interval = setInterval(tick, 3000);
+    const onVis = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVis); };
   }, [chat.id, lastSince, loadMessages]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
       const data = await api("get_typing", { chat_id: chat.id }, currentUser.id);
       setIsTyping(!!data.typing);
-    }, 2500);
+    }, 4000);
     return () => clearInterval(interval);
   }, [chat.id, currentUser.id]);
 
@@ -218,12 +222,13 @@ export function ChatWindow({
   useEffect(() => {
     reloadScheduled();
     const t = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
       const r = await api("scheduled_run_due", {}, currentUser.id);
       if (r && r.sent && r.sent > 0) {
         setLastSince(0);
       }
       reloadScheduled();
-    }, 30000);
+    }, 60000);
     return () => clearInterval(t);
   }, [reloadScheduled, currentUser.id]);
 

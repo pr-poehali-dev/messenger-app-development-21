@@ -9,7 +9,7 @@ import VideoCircleRecorder from "@/components/messenger/VideoCircleRecorder";
 import GroupProfilePanel from "@/components/messenger/GroupProfilePanel";
 import { MediaViewer } from "@/components/messenger/MediaViewer";
 
-const POLL_MS = 2500;
+const POLL_MS = 3500;
 
 interface Props {
   group: Group;
@@ -96,8 +96,14 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
   };
 
   useEffect(() => {
-    pollRef.current = setInterval(() => loadMessages(lastSince), POLL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    const tick = () => { if (document.visibilityState === "visible") loadMessages(lastSince); };
+    pollRef.current = setInterval(tick, POLL_MS);
+    const onVis = () => { if (document.visibilityState === "visible") loadMessages(lastSince); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [lastSince, loadMessages]);
 
   useEffect(() => {

@@ -117,14 +117,20 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!authed) return;
     loadTickets(ticketStatusFilter);
-    const t = setInterval(() => loadTickets(ticketStatusFilter), 15000);
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      loadTickets(ticketStatusFilter);
+    }, 30000);
     return () => clearInterval(t);
   }, [authed, ticketStatusFilter, loadTickets]);
 
   // Активный тикет — авто-poll
   useEffect(() => {
     if (!authed || !activeTicket) return;
-    const t = setInterval(() => loadTicketMessages(activeTicket.id), 6000);
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      loadTicketMessages(activeTicket.id);
+    }, 10000);
     return () => clearInterval(t);
   }, [authed, activeTicket, loadTicketMessages]);
 

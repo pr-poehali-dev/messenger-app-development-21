@@ -68,8 +68,11 @@ export default function SupportPanel({
       }
     };
     load();
-    const t = setInterval(load, 6000);
-    return () => { cancel = true; clearInterval(t); };
+    const tick = () => { if (document.visibilityState === "visible") load(); };
+    const t = setInterval(tick, 10000);
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancel = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [activeTicket, currentUser.id]);
 
   const createTicket = async () => {
