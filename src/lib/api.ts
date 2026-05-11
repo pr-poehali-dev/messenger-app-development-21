@@ -40,23 +40,52 @@ export async function uploadImage(file: File, userId: number): Promise<string> {
   return result.url;
 }
 
+async function fetchWithRetry(url: string, init: RequestInit, timeoutMs = 15000, retries = 1): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(tid);
+      return res;
+    } catch (e) {
+      clearTimeout(tid);
+      lastErr = e;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Network error");
+}
+
 export async function api(action: string, body: Record<string, unknown> = {}, userId?: number) {
   const url = POLL_ACTIONS.has(action) ? CHAT_POLL_API : CHAT_API;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(userId ? { "X-User-Id": String(userId) } : {}) },
     body: JSON.stringify({ action, ...body }),
   });
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    return { error: "bad_response" };
+  }
 }
 
 export async function pushApi(action: string, body: Record<string, unknown> = {}, userId?: number) {
-  const res = await fetch(PUSH_API, {
+  const res = await fetchWithRetry(PUSH_API, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(userId ? { "X-User-Id": String(userId) } : {}) },
     body: JSON.stringify({ action, ...body }),
   });
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    return { error: "bad_response" };
+  }
 }
 
 export function urlBase64ToUint8Array(base64String: string) {
