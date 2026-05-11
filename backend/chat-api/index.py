@@ -2,7 +2,23 @@ import os
 import json
 import time
 import urllib.request
+import threading
 import psycopg2
+
+
+def _fire_and_forget_http(url: str, body: bytes, timeout: float = 3.0) -> None:
+    """Отправить HTTP POST в фоне, не блокируя ответ клиенту."""
+    def _run():
+        try:
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=timeout)
+        except Exception:
+            pass
+    try:
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+    except Exception:
+        pass
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p67547116_messenger_app_develo")
 
@@ -1293,25 +1309,34 @@ def handler(event: dict, context) -> dict:
             _grant_xp(cur, int(user_id), "message")
         elif kind == "sticker":
             _grant_xp(cur, int(user_id), "sticker_sent")
-        # Бейдж "Болтун" за 100 текстовых сообщений
-        if kind == "text":
-            cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.messages WHERE sender_id=%s AND kind='text' AND removed_at IS NULL", (int(user_id),))
-            cnt = int((cur.fetchone() or [0])[0])
-            if cnt >= 100:
+        # Бейдж "Болтун" за 100 текстовых сообщений: проверяем не каждый раз,
+        # а только если msg_id кратен 25 — кратно реже + EXISTS вместо COUNT
+        if kind == "text" and int(msg_id) % 25 == 0:
+            cur.execute(
+                f"SELECT EXISTS(SELECT 1 FROM {SCHEMA}.messages WHERE sender_id=%s AND kind='text' AND removed_at IS NULL OFFSET 99 LIMIT 1)",
+                (int(user_id),)
+            )
+            if (cur.fetchone() or [False])[0]:
                 _award_badge(cur, int(user_id), "talker")
-        # Бейдж "Социальный" за 5 чатов
-        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.chats WHERE user1_id=%s OR user2_id=%s", (int(user_id), int(user_id)))
-        chats_cnt = int((cur.fetchone() or [0])[0])
-        if chats_cnt >= 5:
-            _award_badge(cur, int(user_id), "social")
+        # Бейдж "Социальный": тоже не на каждое сообщение
+        if int(msg_id) % 50 == 0:
+            cur.execute(
+                f"SELECT EXISTS(SELECT 1 FROM {SCHEMA}.chats WHERE user1_id=%s OR user2_id=%s OFFSET 4 LIMIT 1)",
+                (int(user_id), int(user_id))
+            )
+            if (cur.fetchone() or [False])[0]:
+                _award_badge(cur, int(user_id), "social")
 
+        # Объединяем получение recipient + sender_name + webhook бота в ОДИН запрос
         cur.execute(
             f"""SELECT u.name,
-                       CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END AS recipient_id
+                       CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END AS recipient_id,
+                       ru.bot_webhook_url, COALESCE(ru.is_bot, FALSE)
                 FROM {SCHEMA}.chats c
                 JOIN {SCHEMA}.users u ON u.id = %s
+                JOIN {SCHEMA}.users ru ON ru.id = (CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END)
                 WHERE c.id = %s""",
-            (int(user_id), int(user_id), int(chat_id))
+            (int(user_id), int(user_id), int(user_id), int(chat_id))
         )
         row = cur.fetchone()
         # XP получателю за входящее
@@ -1320,47 +1345,29 @@ def handler(event: dict, context) -> dict:
         conn.close()
 
         if row:
-            sender_name, recipient_id = row
-            # Webhook для бота-получателя
-            try:
-                conn2 = psycopg2.connect(DSN)
-                cur2 = conn2.cursor()
-                cur2.execute(
-                    f"SELECT bot_webhook_url FROM {SCHEMA}.users WHERE id=%s AND is_bot=true AND bot_webhook_url IS NOT NULL",
-                    (int(recipient_id),)
-                )
-                wh_row = cur2.fetchone()
-                conn2.close()
-                if wh_row and wh_row[0]:
-                    wh_body = json.dumps({
-                        "message_id": int(msg_id),
-                        "chat_id": int(chat_id),
-                        "from_user_id": int(user_id),
-                        "from_user_name": sender_name,
-                        "text": text or "",
-                        "created_at": now,
-                    }).encode("utf-8")
-                    try:
-                        req2 = urllib.request.Request(wh_row[0], data=wh_body, headers={"Content-Type": "application/json"})
-                        urllib.request.urlopen(req2, timeout=3)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            sender_name, recipient_id, bot_webhook_url, is_bot = row
+            # Webhook для бота-получателя — в фоне
+            if is_bot and bot_webhook_url:
+                wh_body = json.dumps({
+                    "message_id": int(msg_id),
+                    "chat_id": int(chat_id),
+                    "from_user_id": int(user_id),
+                    "from_user_name": sender_name,
+                    "text": text or "",
+                    "created_at": now,
+                }).encode("utf-8")
+                _fire_and_forget_http(bot_webhook_url, wh_body, timeout=3.0)
+            # Push-уведомление — в фоне
             push_url = os.environ.get("PUSH_NOTIFY_URL", "")
             if push_url:
-                try:
-                    push_body = json.dumps({
-                        "action": "send",
-                        "recipient_id": recipient_id,
-                        "sender_name": sender_name,
-                        "message": text[:100],
-                        "chat_id": int(chat_id),
-                    }).encode("utf-8")
-                    req = urllib.request.Request(push_url, data=push_body, headers={"Content-Type": "application/json"})
-                    urllib.request.urlopen(req, timeout=5)
-                except Exception:
-                    pass
+                push_body = json.dumps({
+                    "action": "send",
+                    "recipient_id": recipient_id,
+                    "sender_name": sender_name,
+                    "message": text[:100],
+                    "chat_id": int(chat_id),
+                }).encode("utf-8")
+                _fire_and_forget_http(push_url, push_body, timeout=5.0)
 
         return ok({"id": msg_id, "created_at": now, "media_url": media_url or None, "media_type": media_type or None, "image_url": media_url if media_type == "image" else None})
 
