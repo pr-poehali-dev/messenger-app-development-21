@@ -7,7 +7,6 @@ import { AuthScreen } from "@/components/messenger/AuthScreen";
 import { ContactsPanel } from "@/components/messenger/ContactsPanel";
 import { CallScreen } from "@/components/messenger/CallScreen";
 import { AdminPanel } from "@/components/messenger/AdminPanel";
-import { DevPinLock } from "@/components/messenger/DevPinLock";
 import InstallPrompt from "@/components/messenger/InstallPrompt";
 import ComingSoon from "@/components/messenger/ComingSoon";
 import { ChatFolders, filterChatsByFolder, useChatFolder } from "@/components/messenger/ChatFolders";
@@ -113,7 +112,6 @@ export default function Index() {
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [storyView, setStoryView] = useState<{ groups: StoryGroup[]; startUserId: number } | null>(null);
   const [storiesRefresh, setStoriesRefresh] = useState(0);
-  const [devPinUnlocked, setDevPinUnlocked] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [realChats, setRealChats] = useState<Chat[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -522,15 +520,9 @@ export default function Index() {
         />
       )}
 
-      {/* Admin Panel: сначала PIN-блокировка, потом сама панель */}
-      {showAdmin && !devPinUnlocked && (
-        <DevPinLock
-          onUnlock={() => setDevPinUnlocked(true)}
-          onClose={() => { setShowAdmin(false); setDevPinUnlocked(false); }}
-        />
-      )}
-      {showAdmin && devPinUnlocked && (
-        <AdminPanel onClose={() => { setShowAdmin(false); setDevPinUnlocked(false); }} />
+      {/* Admin Panel */}
+      {showAdmin && (
+        <AdminPanel onClose={() => setShowAdmin(false)} />
       )}
 
       {/* Call screen */}

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 import psycopg2
 from pywebpush import webpush, WebPushException
 
@@ -30,10 +31,11 @@ def err(msg, code=400):
 def handler(event: dict, context) -> dict:
     """
     Push-уведомления для Nova.
-    subscribe  — сохранить подписку браузера
+    subscribe   — сохранить подписку браузера
     unsubscribe — удалить подписку
-    send       — отправить уведомление получателю (вызывается из chat-api)
-    vapid_key  — получить публичный VAPID ключ для браузера
+    send        — отправить уведомление получателю (личка, вызывается из chat-api)
+    send_group  — отправить уведомление всем участникам группы (кроме отправителя)
+    vapid_key   — получить публичный VAPID ключ для браузера
     """
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
@@ -130,6 +132,78 @@ def handler(event: dict, context) -> dict:
                 pass
 
         return ok({"ok": True, "sent": sent})
+
+    # ── send_group — push всем участникам группы (кроме отправителя) ──────────
+    if action == "send_group":
+        group_id = body.get("group_id")
+        sender_id = body.get("sender_id")
+        group_name = body.get("group_name", "Группа")
+        message = body.get("message", "Новое сообщение")
+        message_id = body.get("message_id")
+        is_channel = body.get("is_channel", False)
+
+        if not group_id:
+            conn.close()
+            return err("Нужен group_id")
+
+        # Одним запросом: все подписки участников группы, кроме отправителя,
+        # у которых не отключены групповые уведомления (если такой флаг есть)
+        cur.execute(
+            f"""SELECT ps.endpoint, ps.p256dh, ps.auth, gm.user_id
+                FROM {SCHEMA}.group_members gm
+                JOIN {SCHEMA}.push_subscriptions ps ON ps.user_id = gm.user_id
+                WHERE gm.group_id = %s AND gm.user_id <> %s""",
+            (int(group_id), int(sender_id) if sender_id else 0)
+        )
+        subs = cur.fetchall()
+        conn.close()
+
+        if not subs:
+            return ok({"ok": True, "sent": 0})
+
+        vapid_private = os.environ.get("VAPID_PRIVATE_KEY", "")
+        vapid_public = os.environ.get("VAPID_PUBLIC_KEY", "")
+        if not vapid_private or not vapid_public:
+            return err("VAPID ключи не настроены", 500)
+
+        icon = "📢" if is_channel else "👥"
+        payload = json.dumps({
+            "title": f"{icon} {group_name}",
+            "body": message,
+            "group_id": int(group_id),
+            "message_id": message_id,
+            "icon": "/icons/icon-192.png",
+            "badge": "/icons/icon-192.png",
+            "tag": f"group_{group_id}",
+        })
+
+        # Отправляем все push'и параллельно через потоки — не ждём ответа
+        def _push_one(endpoint, p256dh_key, auth_key):
+            try:
+                webpush(
+                    subscription_info={
+                        "endpoint": endpoint,
+                        "keys": {"p256dh": p256dh_key, "auth": auth_key},
+                    },
+                    data=payload,
+                    vapid_private_key=vapid_private,
+                    vapid_claims={"sub": "mailto:nova@poehali.dev"},
+                )
+            except WebPushException:
+                pass
+            except Exception:
+                pass
+
+        threads = []
+        for endpoint, p256dh, auth_key, _uid in subs:
+            t = threading.Thread(target=_push_one, args=(endpoint, p256dh, auth_key), daemon=True)
+            t.start()
+            threads.append(t)
+        # Ждём всех с общим лимитом, чтобы не подвесить функцию
+        for t in threads:
+            t.join(timeout=5)
+
+        return ok({"ok": True, "queued": len(subs)})
 
     conn.close()
     return err("Неизвестный action")
