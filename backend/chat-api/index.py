@@ -2327,19 +2327,24 @@ def handler(event: dict, context) -> dict:
         if not text and not media_url:
             conn.close()
             return err("Укажите text или media_url")
+        # Одним запросом: проверка членства + тип группы (канал/чат) + название
         cur.execute(
-            f"SELECT role FROM {SCHEMA}.group_members WHERE group_id=%s AND user_id=%s",
-            (int(group_id), int(user_id))
+            f"""SELECT gm.role, COALESCE(g.is_channel, FALSE), g.name
+                FROM {SCHEMA}.groups g
+                LEFT JOIN {SCHEMA}.group_members gm
+                  ON gm.group_id = g.id AND gm.user_id = %s
+                WHERE g.id = %s""",
+            (int(user_id), int(group_id))
         )
-        member = cur.fetchone()
-        if not member:
+        gr = cur.fetchone()
+        if not gr:
+            conn.close()
+            return err("Группа не найдена", 404)
+        role, is_channel, group_name = gr
+        if not role:
             conn.close()
             return err("Нет доступа", 403)
-        cur.execute(
-            f"SELECT is_channel FROM {SCHEMA}.groups WHERE id=%s", (int(group_id),)
-        )
-        g = cur.fetchone()
-        if g and g[0] and member[0] not in ('owner', 'admin'):
+        if is_channel and role not in ('owner', 'admin'):
             conn.close()
             return err("В канал могут писать только владельцы и администраторы", 403)
         now = int(time.time())
@@ -2356,7 +2361,24 @@ def handler(event: dict, context) -> dict:
             f"UPDATE {SCHEMA}.groups SET last_message=%s, last_message_at=%s WHERE id=%s",
             (last_msg, now, int(group_id))
         )
+        # Обновим last_seen отправителя
+        cur.execute(f"UPDATE {SCHEMA}.users SET last_seen=%s WHERE id=%s", (now, int(user_id)))
         conn.close()
+
+        # Push-уведомления участникам группы — в фоне, чтобы не задерживать ответ
+        push_url = os.environ.get("PUSH_NOTIFY_URL", "")
+        if push_url:
+            push_body = json.dumps({
+                "action": "send_group",
+                "group_id": int(group_id),
+                "group_name": group_name or "",
+                "sender_id": int(user_id),
+                "message": (text[:100] if text else "[медиа]"),
+                "message_id": int(msg_id),
+                "is_channel": bool(is_channel),
+            }).encode("utf-8")
+            _fire_and_forget_http(push_url, push_body, timeout=5.0)
+
         return ok({"id": msg_id, "created_at": now})
 
     # ── get_group_members ─────────────────────────────────────────────────────
