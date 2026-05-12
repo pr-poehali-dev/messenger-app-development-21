@@ -86,10 +86,26 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Нужен recipient_id")
 
-        cur.execute(
-            f"SELECT endpoint, p256dh, auth FROM {SCHEMA}.push_subscriptions WHERE user_id = %s",
-            (int(recipient_id),)
-        )
+        is_call = body.get("is_call", False)
+        # Для звонков mute не учитываем — звонок важнее.
+        # Для обычных сообщений: учитываем chat_settings.muted и users.notify_messages
+        if is_call:
+            cur.execute(
+                f"SELECT endpoint, p256dh, auth FROM {SCHEMA}.push_subscriptions WHERE user_id = %s",
+                (int(recipient_id),)
+            )
+        else:
+            cur.execute(
+                f"""SELECT ps.endpoint, ps.p256dh, ps.auth
+                    FROM {SCHEMA}.push_subscriptions ps
+                    JOIN {SCHEMA}.users u ON u.id = ps.user_id
+                    LEFT JOIN {SCHEMA}.chat_settings cs
+                        ON cs.user_id = ps.user_id AND cs.chat_id = %s
+                    WHERE ps.user_id = %s
+                      AND COALESCE(u.notify_messages, TRUE) = TRUE
+                      AND COALESCE(cs.muted, FALSE) = FALSE""",
+                (int(chat_id) if chat_id else 0, int(recipient_id))
+            )
         subs = cur.fetchall()
         conn.close()
 
@@ -101,7 +117,6 @@ def handler(event: dict, context) -> dict:
         if not vapid_private or not vapid_public:
             return err("VAPID ключи не настроены", 500)
 
-        is_call = body.get("is_call", False)
         call_id = body.get("call_id")
         payload = json.dumps({
             "title": f"📞 {sender_name}" if is_call else (sender_name or title),
@@ -146,14 +161,22 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Нужен group_id")
 
-        # Одним запросом: все подписки участников группы, кроме отправителя,
-        # у которых не отключены групповые уведомления (если такой флаг есть)
+        # Одним запросом: все подписки участников группы, кроме отправителя
+        # и тех, кто замьютил эту группу (group_mute) или отключил групповые
+        # уведомления глобально (users.notify_groups = false).
+        now_ts = int(time.time())
         cur.execute(
             f"""SELECT ps.endpoint, ps.p256dh, ps.auth, gm.user_id
                 FROM {SCHEMA}.group_members gm
                 JOIN {SCHEMA}.push_subscriptions ps ON ps.user_id = gm.user_id
-                WHERE gm.group_id = %s AND gm.user_id <> %s""",
-            (int(group_id), int(sender_id) if sender_id else 0)
+                JOIN {SCHEMA}.users u ON u.id = gm.user_id
+                LEFT JOIN {SCHEMA}.group_mute gmu
+                    ON gmu.user_id = gm.user_id AND gmu.group_id = gm.group_id
+                WHERE gm.group_id = %s
+                  AND gm.user_id <> %s
+                  AND COALESCE(u.notify_groups, TRUE) = TRUE
+                  AND (gmu.user_id IS NULL OR (gmu.muted_until <> 0 AND gmu.muted_until <= %s))""",
+            (int(group_id), int(sender_id) if sender_id else 0, now_ts)
         )
         subs = cur.fetchall()
         conn.close()

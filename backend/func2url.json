@@ -1,3 +1,4 @@
 {
-  "push-notify": "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af"
+  "push-notify": "https://functions.poehali.dev/c9d141ca-3552-433f-a968-ac1e92da00af",
+  "chat-api": "https://functions.poehali.dev/b97ade88-cc88-4702-a461-4c386efd5ca3"
 }

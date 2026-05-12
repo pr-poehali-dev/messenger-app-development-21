@@ -55,6 +55,30 @@
       "body": {"action": "buy_pro", "plan": "month"},
       "expectedStatus": 400,
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "set_chat_mute requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "set_chat_mute", "chat_id": 1, "muted": true},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "set_group_mute requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "set_group_mute", "group_id": 1, "muted": true},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "get_mute_settings requires X-User-Id",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "get_mute_settings"},
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
     }
   ]
 }

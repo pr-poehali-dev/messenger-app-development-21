@@ -300,66 +300,66 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Нужен X-User-Id")
         archived_flag = str(body.get("archived") or params.get("archived") or "").lower() in ("1", "true")
+        uid = int(user_id)
+        # ОДНИМ запросом: чаты + партнёры + настройки + unread + archived_count (через WINDOW)
         cur.execute(
-            f"""SELECT c.id, c.last_message, c.last_message_at,
+            f"""WITH my_chats AS (
+                    SELECT c.id, c.last_message, c.last_message_at,
+                           (CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END) AS partner_id
+                    FROM {SCHEMA}.chats c
+                    WHERE (c.user1_id = %s OR c.user2_id = %s)
+                ),
+                blocked AS (
+                    SELECT blocked_id FROM {SCHEMA}.user_blocks WHERE blocker_id = %s
+                ),
+                unread AS (
+                    SELECT m.chat_id, COUNT(*)::int AS cnt
+                    FROM {SCHEMA}.messages m
+                    LEFT JOIN {SCHEMA}.chat_settings cs2
+                        ON cs2.chat_id = m.chat_id AND cs2.user_id = %s
+                    WHERE m.sender_id <> %s
+                      AND m.read_at IS NULL
+                      AND m.created_at > COALESCE(cs2.cleared_at, 0)
+                      AND m.chat_id IN (SELECT id FROM my_chats)
+                    GROUP BY m.chat_id
+                )
+                SELECT mc.id, mc.last_message, mc.last_message_at,
                        u.id, u.name, u.phone, u.avatar_url, u.last_seen,
                        COALESCE(cs.muted, FALSE),
                        COALESCE(cs.pinned, FALSE),
                        COALESCE(cs.favorite, FALSE),
                        COALESCE(cs.cleared_at, 0),
-                       COALESCE(cs.archived, FALSE)
-                FROM {SCHEMA}.chats c
-                JOIN {SCHEMA}.users u ON (
-                    CASE WHEN c.user1_id = %s THEN c.user2_id ELSE c.user1_id END = u.id
-                )
+                       COALESCE(cs.archived, FALSE),
+                       COALESCE(un.cnt, 0)
+                FROM my_chats mc
+                JOIN {SCHEMA}.users u ON u.id = mc.partner_id
                 LEFT JOIN {SCHEMA}.chat_settings cs
-                    ON cs.chat_id = c.id AND cs.user_id = %s
-                WHERE (c.user1_id = %s OR c.user2_id = %s)
-                  AND u.id NOT IN (
-                      SELECT blocked_id FROM {SCHEMA}.user_blocks WHERE blocker_id = %s
-                  )
+                    ON cs.chat_id = mc.id AND cs.user_id = %s
+                LEFT JOIN unread un ON un.chat_id = mc.id
+                WHERE u.id NOT IN (SELECT blocked_id FROM blocked)
                   AND COALESCE(cs.archived, FALSE) = %s
                 ORDER BY COALESCE(cs.pinned, FALSE) DESC,
-                         c.last_message_at DESC NULLS LAST""",
-            (int(user_id), int(user_id), int(user_id), int(user_id), int(user_id), archived_flag)
+                         mc.last_message_at DESC NULLS LAST""",
+            (uid, uid, uid, uid, uid, uid, uid, archived_flag)
         )
         rows = cur.fetchall()
-
-        unread_map = {}
-        if rows:
-            chat_ids = [r[0] for r in rows]
-            placeholders = ",".join(["%s"] * len(chat_ids))
-            cur.execute(
-                f"""SELECT m.chat_id, COUNT(*) FROM {SCHEMA}.messages m
-                    LEFT JOIN {SCHEMA}.chat_settings cs
-                        ON cs.chat_id = m.chat_id AND cs.user_id = %s
-                    WHERE m.chat_id IN ({placeholders})
-                      AND m.sender_id != %s
-                      AND m.read_at IS NULL
-                      AND m.created_at > COALESCE(cs.cleared_at, 0)
-                    GROUP BY m.chat_id""",
-                (int(user_id), *chat_ids, int(user_id))
-            )
-            for r in cur.fetchall():
-                unread_map[r[0]] = r[1]
-
-        chats = [{
-            "id": r[0], "last_message": r[1], "last_message_at": r[2],
-            "partner": {"id": r[3], "name": r[4], "phone": r[5], "avatar_url": r[6], "last_seen": r[7]},
-            "unread": unread_map.get(r[0], 0),
-            "muted": r[8], "pinned": r[9], "favorite": r[10], "cleared_at": r[11], "archived": r[12],
-        } for r in rows]
-
-        # количество архивированных (для бэйджа)
+        # количество архивированных (для бейджа) — отдельным быстрым запросом
         cur.execute(
             f"""SELECT COUNT(*) FROM {SCHEMA}.chat_settings cs
                 JOIN {SCHEMA}.chats c ON c.id = cs.chat_id
                 WHERE cs.user_id = %s AND cs.archived = TRUE
                   AND (c.user1_id = %s OR c.user2_id = %s)""",
-            (int(user_id), int(user_id), int(user_id))
+            (uid, uid, uid)
         )
         archived_count = cur.fetchone()[0] or 0
         conn.close()
+
+        chats = [{
+            "id": r[0], "last_message": r[1], "last_message_at": r[2],
+            "partner": {"id": r[3], "name": r[4], "phone": r[5], "avatar_url": r[6], "last_seen": r[7]},
+            "unread": int(r[13] or 0),
+            "muted": r[8], "pinned": r[9], "favorite": r[10], "cleared_at": r[11], "archived": r[12],
+        } for r in rows]
         return ok({"chats": chats, "archived_count": archived_count})
 
     # ── get_or_create_chat ────────────────────────────────────────────────────
@@ -391,81 +391,59 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id")
 
-        # Удаляем истёкшие исчезающие сообщения (soft-remove)
         now_ts = int(time.time())
-        cur.execute(
-            f"""UPDATE {SCHEMA}.messages
-                SET removed_at = %s
-                WHERE chat_id = %s AND expires_at IS NOT NULL AND expires_at <= %s AND removed_at IS NULL""",
-            (now_ts, int(chat_id), now_ts)
-        )
+        cid = int(chat_id)
+        uid_int = int(user_id) if user_id else 0
 
-        cleared_at = 0
-        if user_id:
-            cur.execute(
-                f"SELECT cleared_at FROM {SCHEMA}.chat_settings WHERE user_id = %s AND chat_id = %s",
-                (int(user_id), int(chat_id))
-            )
-            r = cur.fetchone()
-            if r and r[0]:
-                cleared_at = int(r[0])
-        effective_since = max(int(since), cleared_at)
-
+        # ОДНИМ запросом: soft-remove истёкших + читаем cleared_at + получаем все сообщения
+        # с реакциями (JSON), reply_to (LEFT JOIN) и removed_ids
         cur.execute(
-            f"""SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
+            f"""WITH expire_upd AS (
+                    UPDATE {SCHEMA}.messages
+                    SET removed_at = %s
+                    WHERE chat_id = %s AND expires_at IS NOT NULL
+                      AND expires_at <= %s AND removed_at IS NULL
+                    RETURNING id
+                ),
+                cleared AS (
+                    SELECT COALESCE(MAX(cleared_at), 0)::bigint AS ts
+                    FROM {SCHEMA}.chat_settings
+                    WHERE user_id = %s AND chat_id = %s
+                )
+                SELECT m.id, m.sender_id, m.text, m.created_at, m.read_at, u.name,
                        m.image_url, m.media_type, m.media_url, m.file_name, m.file_size, m.duration,
                        m.reply_to_id, m.forwarded_from_user_id, m.forwarded_from_name, m.edited_at,
-                       COALESCE(m.kind, 'text'), m.payload_json, m.expires_at
+                       COALESCE(m.kind, 'text'), m.payload_json, m.expires_at,
+                       rm.id AS reply_id, ru.name AS reply_sender_name,
+                       rm.text AS reply_text, rm.media_type AS reply_media_type,
+                       COALESCE(
+                           (SELECT json_agg(json_build_object(
+                                'emoji', mr.emoji,
+                                'user_name', mu.name,
+                                'user_id', mr.user_id))
+                            FROM {SCHEMA}.message_reactions mr
+                            JOIN {SCHEMA}.users mu ON mu.id = mr.user_id
+                            WHERE mr.message_id = m.id),
+                           '[]'::json) AS reactions
                 FROM {SCHEMA}.messages m
                 JOIN {SCHEMA}.users u ON m.sender_id = u.id
-                WHERE m.chat_id = %s AND m.created_at > %s AND m.removed_at IS NULL
+                LEFT JOIN {SCHEMA}.messages rm ON rm.id = m.reply_to_id
+                LEFT JOIN {SCHEMA}.users ru ON ru.id = rm.sender_id
+                WHERE m.chat_id = %s
+                  AND m.created_at > GREATEST(%s, (SELECT ts FROM cleared))
+                  AND m.removed_at IS NULL
                   AND COALESCE(m.kind, 'text') <> 'bot_callback'
                 ORDER BY m.created_at ASC LIMIT 100""",
-            (int(chat_id), effective_since)
+            (now_ts, cid, now_ts, uid_int, cid, cid, int(since))
         )
         rows = cur.fetchall()
 
-        # Подгружаем краткую инфу для reply_to (id, sender_name, text)
-        reply_map = {}
-        reply_ids = [r[12] for r in rows if r[12]]
-        if reply_ids:
-            placeholders = ",".join(["%s"] * len(reply_ids))
-            cur.execute(
-                f"""SELECT m.id, u.name, m.text, m.media_type
-                    FROM {SCHEMA}.messages m
-                    JOIN {SCHEMA}.users u ON u.id = m.sender_id
-                    WHERE m.id IN ({placeholders})""",
-                reply_ids
-            )
-            for rr in cur.fetchall():
-                reply_map[rr[0]] = {"id": rr[0], "sender_name": rr[1], "text": rr[2], "media_type": rr[3]}
-
-        # Получаем реакции для этих сообщений
-        reactions_map = {}
-        if rows:
-            msg_ids = [r[0] for r in rows]
-            placeholders = ",".join(["%s"] * len(msg_ids))
-            cur.execute(
-                f"""SELECT mr.message_id, mr.emoji, u.name, mr.user_id
-                    FROM {SCHEMA}.message_reactions mr
-                    JOIN {SCHEMA}.users u ON u.id = mr.user_id
-                    WHERE mr.message_id IN ({placeholders})""",
-                msg_ids
-            )
-            for r in cur.fetchall():
-                mid = r[0]
-                if mid not in reactions_map:
-                    reactions_map[mid] = []
-                reactions_map[mid].append({"emoji": r[1], "user_name": r[2], "user_id": r[3]})
-
-        # ids удалённых за период (чтобы фронт убрал их из DOM)
+        # ids удалённых (одним отдельным запросом — нужен для соответствия фронту)
         cur.execute(
-            f"""SELECT id FROM {SCHEMA}.messages
-                WHERE chat_id = %s AND removed_at IS NOT NULL""",
-            (int(chat_id),)
+            f"SELECT id FROM {SCHEMA}.messages WHERE chat_id = %s AND removed_at IS NOT NULL",
+            (cid,)
         )
         removed_ids = [r[0] for r in cur.fetchall()]
-
         conn.close()
         def _parse_payload(raw):
             if not raw:
@@ -475,20 +453,25 @@ def handler(event: dict, context) -> dict:
             except Exception:
                 return None
 
+        def _reply_obj(r):
+            if not r[12] or not r[19]:
+                return None
+            return {"id": r[19], "sender_name": r[20], "text": r[21], "media_type": r[22]}
+
         messages = [{
             "id": r[0], "sender_id": r[1], "text": r[2], "created_at": r[3],
             "read_at": r[4], "sender_name": r[5],
             "image_url": r[6],
             "media_type": r[7], "media_url": r[8],
             "file_name": r[9], "file_size": r[10], "duration": r[11],
-            "reply_to": reply_map.get(r[12]) if r[12] else None,
+            "reply_to": _reply_obj(r),
             "forwarded_from_user_id": r[13],
             "forwarded_from_name": r[14],
             "edited_at": r[15],
             "kind": r[16] or "text",
             "payload": _parse_payload(r[17]),
             "expires_at": int(r[18]) if r[18] else None,
-            "reactions": reactions_map.get(r[0], []),
+            "reactions": r[23] or [],
         } for r in rows]
         return ok({"messages": messages, "removed_ids": removed_ids, "now": int(time.time())})
 
@@ -715,6 +698,81 @@ def handler(event: dict, context) -> dict:
         if not rr or not rr[0]:
             return ok({"ok": True})
         return ok({"ok": rr[0] == pin})
+
+    # ── set_chat_mute — заглушить/включить уведомления личного чата ───────────
+    if action == "set_chat_mute":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            cid = int(body.get("chat_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный chat_id")
+        if not cid:
+            conn.close(); return err("Укажите chat_id")
+        muted = bool(body.get("muted", True))
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.chat_settings (user_id, chat_id, muted)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, chat_id) DO UPDATE SET muted = EXCLUDED.muted""",
+            (int(user_id), cid, muted)
+        )
+        conn.close()
+        return ok({"ok": True, "muted": muted})
+
+    # ── set_group_mute — заглушить/включить уведомления группы ────────────────
+    if action == "set_group_mute":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        try:
+            gid = int(body.get("group_id") or 0)
+        except Exception:
+            conn.close(); return err("Неверный group_id")
+        if not gid:
+            conn.close(); return err("Укажите group_id")
+        muted = bool(body.get("muted", True))
+        # muted_until=0 — бессрочно. Если передан hours — мьют на N часов.
+        hours = body.get("hours")
+        now = int(time.time())
+        muted_until = 0
+        if muted and hours:
+            try:
+                muted_until = now + int(hours) * 3600
+            except Exception:
+                muted_until = 0
+        if muted:
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.group_mute (user_id, group_id, muted_until, created_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, group_id) DO UPDATE SET muted_until = EXCLUDED.muted_until""",
+                (int(user_id), gid, muted_until, now)
+            )
+        else:
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.group_mute WHERE user_id=%s AND group_id=%s",
+                (int(user_id), gid)
+            )
+        conn.close()
+        return ok({"ok": True, "muted": muted, "muted_until": muted_until})
+
+    # ── get_mute_settings — все mute-настройки пользователя за один запрос ────
+    if action == "get_mute_settings":
+        if not user_id:
+            conn.close(); return err("Нужен X-User-Id")
+        now = int(time.time())
+        cur.execute(
+            f"""SELECT chat_id FROM {SCHEMA}.chat_settings
+                WHERE user_id = %s AND muted = TRUE""",
+            (int(user_id),)
+        )
+        muted_chats = [r[0] for r in cur.fetchall()]
+        cur.execute(
+            f"""SELECT group_id, muted_until FROM {SCHEMA}.group_mute
+                WHERE user_id = %s AND (muted_until = 0 OR muted_until > %s)""",
+            (int(user_id), now)
+        )
+        muted_groups = [{"group_id": r[0], "muted_until": r[1]} for r in cur.fetchall()]
+        conn.close()
+        return ok({"muted_chats": muted_chats, "muted_groups": muted_groups})
 
     # ── pin_group_message / unpin_group_message ───────────────────────────────
     if action == "pin_group_message":
