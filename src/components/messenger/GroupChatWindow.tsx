@@ -36,6 +36,7 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
   const [pinned, setPinned] = useState<{ id: number; text: string; sender_name: string; media_type?: string } | null>(null);
   const [onlyAdminsPost, setOnlyAdminsPost] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -74,6 +75,11 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
     });
     api("get_group_info", { group_id: group.id }, currentUser.id).then(d => {
       if (d?.group) setOnlyAdminsPost(!!d.group.only_admins_post);
+    });
+    api("get_mute_settings", {}, currentUser.id).then(d => {
+      const now = Math.floor(Date.now() / 1000);
+      const entry = (d?.muted_groups || []).find((g: { group_id: number; muted_until: number }) => g.group_id === group.id);
+      setIsMuted(!!entry && (entry.muted_until === 0 || entry.muted_until > now));
     });
   }, [group.id, currentUser.id, loadMessages]);
 
@@ -202,7 +208,8 @@ export function GroupChatWindow({ group, currentUser, onBack, onGroupUpdated, on
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm truncate flex items-center gap-1.5">
               {group.is_channel && <Icon name="Radio" size={12} className="text-sky-400 flex-shrink-0" />}
-              {group.name}
+              <span className="truncate">{group.name}</span>
+              {isMuted && <Icon name="BellOff" size={12} className="text-muted-foreground flex-shrink-0" />}
             </div>
             <div className="text-xs text-muted-foreground">
               {group.members_count ?? members.length} {(group.members_count ?? members.length) === 1 ? "участник" : "участников"}

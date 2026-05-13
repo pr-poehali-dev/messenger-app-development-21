@@ -58,10 +58,11 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
       <Avatar label={chat.avatar} id={chat.id} online={chat.online} src={chat.avatar_url || undefined} />
       <div className="flex-1 min-w-0 text-left">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {chat.pinned && <Icon name="Pin" size={11} className="text-violet-400" />}
-            {chat.group && <Icon name="Users" size={12} className="text-sky-400" />}
+          <div className="flex items-center gap-1.5 min-w-0">
+            {chat.pinned && <Icon name="Pin" size={11} className="text-violet-400 flex-shrink-0" />}
+            {chat.group && <Icon name="Users" size={12} className="text-sky-400 flex-shrink-0" />}
             <span className="font-semibold text-sm text-foreground truncate">{chat.name}</span>
+            {chat.muted && <Icon name="BellOff" size={11} className="text-muted-foreground flex-shrink-0" />}
           </div>
           <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">{chat.time}</span>
         </div>
@@ -72,7 +73,7 @@ export function ChatList({ chats, onSelect, selectedId }: { chats: Chat[]; onSel
             <span className="text-xs text-muted-foreground truncate">{chat.lastMsg}</span>
           )}
           {chat.unread ? (
-            <span className="ml-2 flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full grad-primary text-[10px] font-bold text-white flex items-center justify-center">
+            <span className={`ml-2 flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold text-white flex items-center justify-center ${chat.muted ? "bg-white/15" : "grad-primary"}`}>
               {chat.unread}
             </span>
           ) : null}

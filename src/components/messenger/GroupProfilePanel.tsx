@@ -51,6 +51,11 @@ export function GroupProfilePanel({
   const [busy, setBusy] = useState(false);
   const [onlyAdmins, setOnlyAdmins] = useState<boolean>(false);
 
+  // mute
+  const [muted, setMuted] = useState(false);
+  const [mutedUntil, setMutedUntil] = useState(0);
+  const [muteMenuOpen, setMuteMenuOpen] = useState(false);
+
   // Подгружаем актуальную инфу
   useEffect(() => {
     api("get_group_info", { group_id: group.id }, currentUser.id).then(d => {
@@ -60,7 +65,46 @@ export function GroupProfilePanel({
         setOnlyAdmins(!!d.group.only_admins_post);
       }
     });
+    // подтягиваем mute-статус
+    api("get_mute_settings", {}, currentUser.id).then(d => {
+      const entry = (d?.muted_groups || []).find((g: { group_id: number; muted_until: number }) => g.group_id === group.id);
+      if (entry) {
+        setMuted(true);
+        setMutedUntil(entry.muted_until || 0);
+      } else {
+        setMuted(false);
+        setMutedUntil(0);
+      }
+    });
   }, [group.id, currentUser.id]);
+
+  const applyMute = async (mute: boolean, hours?: number) => {
+    setMuteMenuOpen(false);
+    const prev = { muted, mutedUntil };
+    setMuted(mute);
+    setMutedUntil(mute && hours ? Math.floor(Date.now() / 1000) + hours * 3600 : 0);
+    const r = await api(
+      "set_group_mute",
+      { group_id: group.id, muted: mute, ...(hours ? { hours } : {}) },
+      currentUser.id,
+    );
+    if (r?.error) {
+      setMuted(prev.muted);
+      setMutedUntil(prev.mutedUntil);
+      alert(r.error);
+    }
+  };
+
+  const muteLabel = (() => {
+    if (!muted) return "Уведомления включены";
+    if (!mutedUntil) return "Заглушено навсегда";
+    const left = mutedUntil - Math.floor(Date.now() / 1000);
+    if (left <= 0) return "Уведомления включены";
+    const h = Math.floor(left / 3600);
+    if (h >= 24) return `Заглушено ещё ${Math.floor(h / 24)} дн.`;
+    if (h >= 1) return `Заглушено ещё ${h} ч.`;
+    return `Заглушено ещё ${Math.floor(left / 60)} мин.`;
+  })();
 
   const toggleOnlyAdmins = async () => {
     const next = !onlyAdmins;
@@ -376,6 +420,51 @@ export function GroupProfilePanel({
                 </button>
               </div>
             )}
+
+            {/* Уведомления (mute) */}
+            <div className="glass rounded-2xl overflow-hidden relative">
+              <button
+                onClick={() => (muted ? applyMute(false) : setMuteMenuOpen(v => !v))}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition text-left"
+              >
+                <Icon
+                  name={muted ? "BellOff" : "Bell"}
+                  size={18}
+                  className={muted ? "text-amber-400" : "text-violet-400"}
+                />
+                <div className="flex-1">
+                  <div className="font-semibold text-sm">
+                    {muted ? "Уведомления отключены" : "Уведомления"}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{muteLabel}</p>
+                </div>
+                <div className={`w-11 h-6 rounded-full transition ${muted ? "bg-amber-500/70" : "bg-white/10"}`}>
+                  <span
+                    className={`block w-5 h-5 bg-white rounded-full transition-transform mt-0.5 ${
+                      muted ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </div>
+              </button>
+              {muteMenuOpen && !muted && (
+                <div className="border-t border-white/10 divide-y divide-white/5">
+                  {[
+                    { h: 1, label: "На 1 час" },
+                    { h: 8, label: "На 8 часов" },
+                    { h: 24 * 7, label: "На неделю" },
+                    { h: 0, label: "Навсегда" },
+                  ].map(opt => (
+                    <button
+                      key={opt.label}
+                      onClick={() => applyMute(true, opt.h || undefined)}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 transition"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Дата создания */}
             <div className="glass rounded-2xl p-4">
