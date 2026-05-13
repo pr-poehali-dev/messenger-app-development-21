@@ -201,6 +201,28 @@ export default function Index() {
     }
   }, [currentUser]);
 
+  // PWA badge на иконке приложения — считаем без замьюченных чатов
+  useEffect(() => {
+    const total = realChats.reduce((s, c) => s + (c.muted ? 0 : (c.unread || 0)), 0);
+    type NavWithBadge = Navigator & {
+      setAppBadge?: (n?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    const nav = navigator as NavWithBadge;
+    try {
+      if (total > 0 && typeof nav.setAppBadge === "function") {
+        nav.setAppBadge(total).catch(() => {});
+      } else if (typeof nav.clearAppBadge === "function") {
+        nav.clearAppBadge().catch(() => {});
+      }
+    } catch {
+      /* badge api недоступен */
+    }
+    // Также обновляем title вкладки браузера
+    const base = "Nova";
+    document.title = total > 0 ? `(${total > 99 ? "99+" : total}) ${base}` : base;
+  }, [realChats]);
+
   // Загрузка чатов
   useEffect(() => {
     if (!currentUser) return;
@@ -771,7 +793,11 @@ export default function Index() {
         {/* Bottom nav */}
         <div className="flex items-center justify-around px-4 pt-3 border-t border-white/5" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
           {navItems.map(item => {
-            const totalUnread = item.tab === "chats" ? realChats.reduce((s, c) => s + (c.unread || 0), 0) : 0;
+            // Считаем непрочитанные только по НЕзаглушённым чатам — иначе
+            // шумные группы постоянно бы дёргали значок на навигации.
+            const totalUnread = item.tab === "chats"
+              ? realChats.reduce((s, c) => s + (c.muted ? 0 : (c.unread || 0)), 0)
+              : 0;
             return (
               <button
                 key={item.tab}
