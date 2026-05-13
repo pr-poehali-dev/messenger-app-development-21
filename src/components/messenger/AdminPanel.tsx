@@ -357,6 +357,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         {tab === "stats" && (
           <AdminStatsTab
             stats={stats}
+            token={token}
             confirmNuke={confirmNuke}
             setConfirmNuke={setConfirmNuke}
             nuking={nuking}

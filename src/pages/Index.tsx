@@ -705,6 +705,30 @@ export default function Index() {
                 )}
                 onSelect={handleSelectChat}
                 selectedId={selectedChat?.id}
+                onToggleMute={async (c) => {
+                  const next = !c.muted;
+                  setRealChats(prev => prev.map(x => x.id === c.id ? { ...x, muted: next } : x));
+                  try {
+                    await api("set_chat_setting", { chat_id: c.id, field: "muted", value: next }, currentUser!.id);
+                  } catch {
+                    setRealChats(prev => prev.map(x => x.id === c.id ? { ...x, muted: !next } : x));
+                  }
+                }}
+                onToggleArchive={async (c) => {
+                  const next = !c.archived;
+                  setRealChats(prev => prev.filter(x => x.id !== c.id));
+                  try {
+                    await api("archive_chat", { chat_id: c.id, archived: next }, currentUser!.id);
+                  } catch {
+                    setRealChats(prev => [...prev, { ...c, archived: !next }]);
+                  }
+                }}
+                onRefresh={async () => {
+                  if (!currentUser) return;
+                  const data = await api("get_chats", { archived: showArchived }, currentUser.id);
+                  if (data.chats) setRealChats(data.chats.map(mapChat));
+                  if (typeof data.archived_count === "number") setArchivedCount(data.archived_count);
+                }}
               />
 
               {/* Группы и каналы */}

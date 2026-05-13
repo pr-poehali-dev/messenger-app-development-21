@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import random
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p67547116_messenger_app_develo")
@@ -51,6 +52,16 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return err("Укажите chat_id")
         now = int(time.time())
+        # Раз в ~50 запросов чистим устаревшие typing (старше 30 сек) —
+        # таблица не растёт и не нужен отдельный cron.
+        if random.random() < 0.02:
+            try:
+                cur.execute(
+                    f"DELETE FROM {SCHEMA}.typing_status WHERE updated_at < %s",
+                    (now - 30,)
+                )
+            except Exception:
+                pass
         cur.execute(
             f"""SELECT user_id FROM {SCHEMA}.typing_status
                 WHERE chat_id = %s AND user_id != %s AND updated_at > %s""",

@@ -67,6 +67,9 @@ export function ChatWindow({
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [newCount, setNewCount] = useState(0);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  // Подсказка о незнакомце: показываем если собеседник не в контактах
+  const [isUnknown, setIsUnknown] = useState(false);
+  const [unknownDismissed, setUnknownDismissed] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [lastSince, setLastSince] = useState(0);
   const [showGiftModal, setShowGiftModal] = useState(false);
@@ -106,6 +109,22 @@ export function ChatWindow({
       }
     });
   }, [chat.id, currentUser.id]);
+  // Незнакомец: проверяем что собеседник не в контактах
+  useEffect(() => {
+    if (!chat.partner_id) { setIsUnknown(false); return; }
+    setUnknownDismissed(false);
+    api("get_contacts", {}, currentUser.id).then(r => {
+      if (r?.contacts) {
+        const known = (r.contacts as Array<{ id: number }>).some(c => c.id === chat.partner_id);
+        setIsUnknown(!known);
+      }
+    });
+  }, [chat.id, chat.partner_id, currentUser.id]);
+  const addToContacts = async () => {
+    if (!chat.partner_id) return;
+    await api("add_contact", { contact_id: chat.partner_id, name_override: chat.name }, currentUser.id);
+    setIsUnknown(false);
+  };
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ msgId: number; out: boolean } | null>(null);
   const [heartBurst, setHeartBurst] = useState<number | null>(null);
@@ -618,6 +637,43 @@ export function ChatWindow({
           <span className="text-[11px] text-muted-foreground">Сквозное шифрование</span>
         </div>
       </div>
+
+      {/* Подсказка о незнакомце */}
+      {isUnknown && !unknownDismissed && chat.partner_id && (
+        <div className="mx-3 mb-2 glass-strong border border-amber-400/30 rounded-2xl p-3 flex items-start gap-3 animate-fade-in">
+          <Icon name="ShieldAlert" size={18} className="text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold mb-0.5">Незнакомый контакт</div>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Этот пользователь не сохранён у вас в контактах. Будьте внимательны к ссылкам и просьбам о деньгах.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={addToContacts}
+                className="px-3 py-1.5 rounded-xl grad-primary text-white text-xs font-bold"
+              >
+                Добавить в контакты
+              </button>
+              <button
+                onClick={async () => {
+                  await api("block_user", { blocked_id: chat.partner_id }, currentUser.id);
+                  onChatDeleted?.();
+                  onBack();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 text-xs font-bold"
+              >
+                Заблокировать
+              </button>
+              <button
+                onClick={() => setUnknownDismissed(true)}
+                className="px-3 py-1.5 rounded-xl glass text-xs font-bold text-muted-foreground"
+              >
+                Скрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {ctxMenu && (
         <ContextMenu

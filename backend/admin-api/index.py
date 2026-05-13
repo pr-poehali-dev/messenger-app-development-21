@@ -89,6 +89,16 @@ def handler(event: dict, context) -> dict:
         msg_5min = cur.fetchone()[0]
         msg_per_min = round(msg_5min / 5, 1)
 
+        # DAU / WAU / MAU — уникальные пользователи активные за период (по last_seen)
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users WHERE last_seen > %s", (now - 86400,))
+        dau = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users WHERE last_seen > %s", (now - 86400 * 7,))
+        wau = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users WHERE last_seen > %s", (now - 86400 * 30,))
+        mau = cur.fetchone()[0]
+        # Stickiness DAU/MAU
+        stickiness = round((dau / mau * 100), 1) if mau > 0 else 0
+
         conn.close()
 
         # Оценка нагрузки
@@ -107,6 +117,10 @@ def handler(event: dict, context) -> dict:
                 "total": total_users,
                 "online": online_users,
                 "new_24h": new_users_24h,
+                "dau": dau,
+                "wau": wau,
+                "mau": mau,
+                "stickiness": stickiness,
             },
             "messages": {
                 "total": total_messages,
@@ -124,6 +138,56 @@ def handler(event: dict, context) -> dict:
             },
             "timestamp": now,
         })
+
+    # ── activity_chart — данные для графика DAU и сообщений за N дней ────────
+    if action == "activity_chart":
+        days = max(1, min(int(body.get("days") or params.get("days") or 30), 90))
+        now = int(time.time())
+        # Группируем по UTC-дате, считаем уникальных активных юзеров и сообщения
+        cur.execute(
+            f"""SELECT to_char(to_timestamp(last_seen), 'YYYY-MM-DD') AS d,
+                       COUNT(DISTINCT id)::int AS active
+                FROM {SCHEMA}.users
+                WHERE last_seen > %s
+                GROUP BY d
+                ORDER BY d ASC""",
+            (now - days * 86400,)
+        )
+        active_by_day = {r[0]: r[1] for r in cur.fetchall()}
+        cur.execute(
+            f"""SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS d,
+                       COUNT(*)::int AS cnt
+                FROM {SCHEMA}.messages
+                WHERE created_at > %s
+                GROUP BY d
+                ORDER BY d ASC""",
+            (now - days * 86400,)
+        )
+        messages_by_day = {r[0]: r[1] for r in cur.fetchall()}
+        cur.execute(
+            f"""SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS d,
+                       COUNT(*)::int AS cnt
+                FROM {SCHEMA}.users
+                WHERE created_at > %s
+                GROUP BY d
+                ORDER BY d ASC""",
+            (now - days * 86400,)
+        )
+        new_by_day = {r[0]: r[1] for r in cur.fetchall()}
+        conn.close()
+        # Заполняем пропуски нулями
+        from datetime import datetime, timedelta, timezone
+        out = []
+        today = datetime.now(timezone.utc).date()
+        for i in range(days - 1, -1, -1):
+            d = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+            out.append({
+                "date": d,
+                "active": active_by_day.get(d, 0),
+                "messages": messages_by_day.get(d, 0),
+                "new_users": new_by_day.get(d, 0),
+            })
+        return ok({"days": out})
 
     # ── users — список пользователей ─────────────────────────────────────────
     if action == "users":

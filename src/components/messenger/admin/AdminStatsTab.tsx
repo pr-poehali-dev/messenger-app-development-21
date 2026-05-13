@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import Icon from "@/components/ui/icon";
 import {
   Stats,
   LOAD_BG,
   LOAD_COLOR,
   LOAD_LABEL,
+  adminApi,
+  type ActivityDay,
 } from "./AdminAPI";
 
 const ACCENT_BG: Record<string, string> = {
@@ -33,6 +36,7 @@ export function DevRow({ label, value }: { label: string; value: number | string
 
 interface AdminStatsTabProps {
   stats: Stats | null;
+  token?: string;
   // nuke
   confirmNuke: boolean;
   setConfirmNuke: (v: boolean) => void;
@@ -55,6 +59,7 @@ interface AdminStatsTabProps {
 
 export function AdminStatsTab({
   stats,
+  token,
   confirmNuke,
   setConfirmNuke,
   nuking,
@@ -71,6 +76,15 @@ export function AdminStatsTab({
   clearMsgsResult,
   onClearAllMessages,
 }: AdminStatsTabProps) {
+  const [activity, setActivity] = useState<ActivityDay[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    adminApi("activity_chart", { days: 30 }, token).then(r => {
+      const days = (r as { days?: ActivityDay[] }).days;
+      if (Array.isArray(days)) setActivity(days);
+    });
+  }, [token]);
+
   if (!stats) {
     return (
       <div className="space-y-4 animate-fade-in">
@@ -145,6 +159,79 @@ export function AdminStatsTab({
           </div>
         ))}
       </div>
+
+      {/* DAU / WAU / MAU */}
+      {(stats.users.dau !== undefined) && (
+        <div className="glass rounded-2xl p-4">
+          <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
+            <Icon name="Activity" size={15} className="text-violet-400" />
+            Активная аудитория
+          </h3>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 p-2.5 text-center">
+              <p className="text-lg font-black text-violet-300">{stats.users.dau || 0}</p>
+              <p className="text-[10px] text-muted-foreground uppercase">DAU</p>
+            </div>
+            <div className="rounded-xl bg-sky-500/10 border border-sky-500/20 p-2.5 text-center">
+              <p className="text-lg font-black text-sky-300">{stats.users.wau || 0}</p>
+              <p className="text-[10px] text-muted-foreground uppercase">WAU</p>
+            </div>
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2.5 text-center">
+              <p className="text-lg font-black text-emerald-300">{stats.users.mau || 0}</p>
+              <p className="text-[10px] text-muted-foreground uppercase">MAU</p>
+            </div>
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-center">
+              <p className="text-lg font-black text-amber-300">{stats.users.stickiness || 0}%</p>
+              <p className="text-[10px] text-muted-foreground uppercase">Stick.</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Stickiness = DAU/MAU. Хороший показатель: больше 20%.
+          </p>
+        </div>
+      )}
+
+      {/* График активности за 30 дней */}
+      {activity.length > 0 && (
+        <div className="glass rounded-2xl p-4">
+          <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
+            <Icon name="ChartLine" size={15} className="text-sky-400" />
+            Активность за 30 дней
+          </h3>
+          {(() => {
+            const maxActive = Math.max(1, ...activity.map(d => d.active));
+            const maxMsgs = Math.max(1, ...activity.map(d => d.messages));
+            return (
+              <>
+                <div className="flex items-end gap-0.5 h-24 mb-2">
+                  {activity.map(d => (
+                    <div key={d.date} className="flex-1 flex flex-col justify-end gap-px relative group">
+                      <div
+                        className="w-full bg-sky-400/40 rounded-t-sm"
+                        style={{ height: `${(d.messages / maxMsgs) * 60}%` }}
+                        title={`${d.date}: ${d.messages} сообщ.`}
+                      />
+                      <div
+                        className="w-full bg-violet-400 rounded-t-sm"
+                        style={{ height: `${(d.active / maxActive) * 40}%` }}
+                        title={`${d.date}: ${d.active} активных`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>{activity[0]?.date}</span>
+                  <span className="flex gap-3">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-violet-400" />активные</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-sky-400/40" />сообщения</span>
+                  </span>
+                  <span>{activity[activity.length - 1]?.date}</span>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="glass rounded-2xl p-4">

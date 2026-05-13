@@ -188,6 +188,31 @@ def _maybe_streak_bonus(cur, user_id: int) -> int:
     return streak
 
 
+def _rate_limit(cur, key: str, max_per_minute: int) -> bool:
+    """True если лимит ОК (можно выполнять), False — превышен.
+    Окно — фиксированное по минутам, чтобы избежать гонок."""
+    now = int(time.time())
+    window = now - (now % 60)
+    try:
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.rate_limits (key, window_start, counter)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (key) DO UPDATE SET
+                    window_start = CASE WHEN {SCHEMA}.rate_limits.window_start = EXCLUDED.window_start
+                                        THEN {SCHEMA}.rate_limits.window_start
+                                        ELSE EXCLUDED.window_start END,
+                    counter = CASE WHEN {SCHEMA}.rate_limits.window_start = EXCLUDED.window_start
+                                   THEN {SCHEMA}.rate_limits.counter + 1
+                                   ELSE 1 END
+                RETURNING counter""",
+            (key, window)
+        )
+        cnt = (cur.fetchone() or [0])[0]
+        return cnt <= max_per_minute
+    except Exception:
+        return True  # при ошибке — пропускаем, не ломаем приложение
+
+
 def handler(event: dict, context) -> dict:
     """
     Chat API для Nova мессенджера.
@@ -215,6 +240,11 @@ def handler(event: dict, context) -> dict:
         if not phone or not name:
             conn.close()
             return err("Укажите phone и name")
+        # Rate-limit по IP: не более 10 регистраций/минуту с одного IP
+        ip = (event.get("requestContext", {}) or {}).get("identity", {}).get("sourceIp", "anon")
+        if not _rate_limit(cur, f"reg:{ip}", 10):
+            conn.close()
+            return err("Слишком много попыток, подождите минуту", 429)
 
         cur.execute(f"SELECT {USER_COLS} FROM {SCHEMA}.users WHERE phone = %s", (phone,))
         existing = cur.fetchone()
@@ -339,6 +369,7 @@ def handler(event: dict, context) -> dict:
                 WHERE u.id NOT IN (SELECT blocked_id FROM blocked)
                   AND COALESCE(cs.archived, FALSE) = %s
                 ORDER BY COALESCE(cs.pinned, FALSE) DESC,
+                         COALESCE(cs.muted, FALSE) ASC,
                          mc.last_message_at DESC NULLS LAST""",
             (uid, uid, uid, uid, uid, uid, uid, archived_flag)
         )
@@ -1287,6 +1318,10 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             conn.close()
             return err("Нужен X-User-Id")
+        # Rate-limit: не более 30 сообщений в минуту на пользователя
+        if not _rate_limit(cur, f"msg:{user_id}", 30):
+            conn.close()
+            return err("Слишком быстро. Подождите минуту.", 429)
         chat_id = body.get("chat_id")
         text = (body.get("text") or "").strip()
         image_url = (body.get("image_url") or "").strip()

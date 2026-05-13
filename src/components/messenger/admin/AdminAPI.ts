@@ -27,12 +27,22 @@ export async function adminApi(
 }
 
 export interface Stats {
-  users: { total: number; online: number; new_24h: number };
+  users: {
+    total: number; online: number; new_24h: number;
+    dau?: number; wau?: number; mau?: number; stickiness?: number;
+  };
   messages: { total: number; last_1h: number; last_24h: number; per_min: number };
   chats: number;
   push_subs: number;
   calls_1h: number;
   load: { level: string; tip: string; msg_per_min: number };
+}
+
+export interface ActivityDay {
+  date: string;
+  active: number;
+  messages: number;
+  new_users: number;
 }
 
 export interface SupportTicket {
