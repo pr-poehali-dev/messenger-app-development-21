@@ -34,6 +34,19 @@ const config: CapacitorConfig = {
       style: "DARK",
       backgroundColor: "#0a0814",
     },
+    Keyboard: {
+      resize: "body",
+      style: "DARK",
+      resizeOnFullScreen: true,
+    },
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
+    },
+    LocalNotifications: {
+      smallIcon: "ic_stat_icon_config_sample",
+      iconColor: "#8b5cf6",
+      sound: "beep.wav",
+    },
   },
 };
 
